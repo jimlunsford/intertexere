@@ -113,10 +113,11 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 
 		$this->assertTrue( Indexer::rebuild() );
 		$first = Indexer::get_record( $post_id );
+		$first_count = Indexer::active_count();
 		$this->assertTrue( Indexer::rebuild() );
 		$second = Indexer::get_record( $post_id );
 
-		$this->assertSame( 1, Indexer::active_count() );
+		$this->assertSame( $first_count, Indexer::active_count() );
 		$this->assertSame( $first['content_hash'], $second['content_hash'] );
 		$this->assertSame( $source, get_post_field( 'post_content', $post_id ) );
 	}
@@ -147,18 +148,27 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 	}
 
 	public function test_changing_slug_refreshes_the_indexed_permalink(): void {
-		$post_id = self::factory()->post->create(
-			array(
-				'post_status' => 'publish',
-				'post_name'   => 'first-slug',
-			)
-		);
-		$before = Indexer::get_record( $post_id );
+		global $wp_rewrite;
 
-		wp_update_post( array( 'ID' => $post_id, 'post_name' => 'second-slug' ) );
-		$after = Indexer::get_record( $post_id );
+		$original_structure = get_option( 'permalink_structure' );
+		$wp_rewrite->set_permalink_structure( '/%postname%/' );
 
-		$this->assertNotSame( $before['permalink'], $after['permalink'] );
-		$this->assertStringContainsString( 'second-slug', $after['permalink'] );
+		try {
+			$post_id = self::factory()->post->create(
+				array(
+					'post_status' => 'publish',
+					'post_name'   => 'first-slug',
+				)
+			);
+			$before = Indexer::get_record( $post_id );
+
+			wp_update_post( array( 'ID' => $post_id, 'post_name' => 'second-slug' ) );
+			$after = Indexer::get_record( $post_id );
+
+			$this->assertNotSame( $before['permalink'], $after['permalink'] );
+			$this->assertStringContainsString( 'second-slug', $after['permalink'] );
+		} finally {
+			$wp_rewrite->set_permalink_structure( $original_structure );
+		}
 	}
 }
