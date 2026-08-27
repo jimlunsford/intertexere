@@ -27,13 +27,21 @@ final class Eligibility {
 			&& ! wp_is_post_revision( $post->ID )
 			&& ! wp_is_post_autosave( $post->ID );
 
+		if ( ! $eligible ) {
+			return false;
+		}
+
 		/**
-		 * Filter final eligibility after the deliberate core rules are applied.
+		 * Filter whether an otherwise eligible post should be excluded.
 		 *
-		 * @param bool     $eligible Whether the post is eligible.
+		 * This filter may narrow the configured rules, but it cannot promote
+		 * private, unpublished, password-protected, or unsupported content.
+		 * That keeps incremental updates consistent with full rebuild queries.
+		 *
+		 * @param bool     $eligible Whether the post remains eligible.
 		 * @param \WP_Post $post     Current post object.
 		 */
-		return (bool) apply_filters( 'intertexere_is_post_eligible', $eligible, $post );
+		return (bool) apply_filters( 'intertexere_is_post_eligible', true, $post );
 	}
 
 	/**

@@ -102,6 +102,18 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 		$this->assertNotNull( Indexer::get_record( $post_id ) );
 	}
 
+	public function test_eligibility_filter_cannot_promote_unpublished_content(): void {
+		$draft_id = self::factory()->post->create( array( 'post_status' => 'draft' ) );
+		add_filter( 'intertexere_is_post_eligible', '__return_true' );
+
+		try {
+			$this->assertFalse( Indexer::refresh_post( $draft_id ) );
+			$this->assertNull( Indexer::get_record( $draft_id ) );
+		} finally {
+			remove_filter( 'intertexere_is_post_eligible', '__return_true' );
+		}
+	}
+
 	public function test_rebuild_is_repeatable_and_does_not_modify_post_content(): void {
 		$post_id = self::factory()->post->create(
 			array(
