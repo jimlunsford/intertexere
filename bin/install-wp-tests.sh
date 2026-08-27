@@ -28,7 +28,7 @@ fi
 
 if [ ! -d "$WP_TESTS_DIR/includes" ]; then
 	tmp_tests="$(mktemp -d)"
-	download "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${WP_VERSION}.tar.gz" "$tmp_tests/tests.tar.gz"
+	download "https://github.com/WordPress/wordpress-develop/archive/refs/heads/${WP_VERSION}.tar.gz" "$tmp_tests/tests.tar.gz"
 	tar -xzf "$tmp_tests/tests.tar.gz" -C "$tmp_tests"
 	mkdir -p "$WP_TESTS_DIR"
 	cp -R "$tmp_tests/wordpress-develop-${WP_VERSION}/tests/phpunit/." "$WP_TESTS_DIR/"
