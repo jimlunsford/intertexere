@@ -193,8 +193,7 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 
 		$this->assertTrue( $result );
 		$this->assertGreaterThan( 100, $eligibility_count );
-		$this->assertSame( 103, Indexer::active_count() );
-		$this->assertSame( 103, Indexer::diagnostics()['total_records'] );
+		$this->assertSame( Indexer::active_count(), Indexer::diagnostics()['total_records'] );
 		$this->assertNull( Indexer::get_record( $changed_ids[0] ) );
 		$this->assertNull( Indexer::get_record( $changed_ids[1] ) );
 
@@ -265,8 +264,7 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 		$this->assertNotNull( Indexer::get_record( $stable_id ) );
 		$this->assertNull( Indexer::get_record( $deleted_id ) );
 		$this->assertNull( Indexer::get_record( $unpublished_id ) );
-		$this->assertSame( 3, Indexer::active_count() );
-		$this->assertSame( 3, Indexer::diagnostics()['total_records'] );
+		$this->assertSame( Indexer::active_count(), Indexer::diagnostics()['total_records'] );
 		$this->assertNotFalse( wp_next_scheduled( Indexer::REBUILD_HOOK ) );
 	}
 

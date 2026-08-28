@@ -116,7 +116,6 @@ final class Indexer {
 
 			return true;
 		} catch ( \Throwable $error ) {
-			self::delete_generation( $generation );
 			update_option(
 				self::STATE_OPTION,
 				array(
@@ -129,6 +128,7 @@ final class Indexer {
 				),
 				false
 			);
+			self::delete_generation( $generation );
 			self::finish_rebuild_request();
 
 			return new \WP_Error( 'intertexere_rebuild_failed', $error->getMessage() );
@@ -199,9 +199,12 @@ final class Indexer {
 
 		self::write_tombstone( $post_id, $generation );
 
-		// If cutover raced the tombstone write, the replacement is now active
-		// and no traversal write can resurrect this post.
-		if ( $generation === (string) get_option( Schema::GENERATION_OPTION, '' ) ) {
+		// If completion raced the tombstone write, no traversal write can now
+		// resurrect this post, so the temporary marker is no longer needed.
+		$current_state = self::state();
+		if ( $generation === (string) get_option( Schema::GENERATION_OPTION, '' )
+			|| 'running' !== $current_state['status']
+			|| $generation !== (string) $current_state['generation'] ) {
 			self::delete_tombstone( $post_id, $generation );
 		}
 	}
