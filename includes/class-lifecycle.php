@@ -36,6 +36,7 @@ final class Lifecycle {
 	public static function deactivate(): void {
 		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
 		delete_option( Indexer::LOCK_OPTION );
+		delete_option( Indexer::RERUN_OPTION );
 		self::remove_capability();
 	}
 

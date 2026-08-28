@@ -11,8 +11,10 @@ final class Indexer {
 	public const REBUILD_HOOK = 'intertexere_rebuild_index';
 	public const STATE_OPTION = 'intertexere_index_state';
 	public const LOCK_OPTION = 'intertexere_rebuild_lock';
+	public const RERUN_OPTION = 'intertexere_rebuild_rerun_requested';
 	private const BATCH_SIZE = 100;
 	private const LOCK_TTL = 3600;
+	private const TOMBSTONE_STATUS = '__removed';
 
 	/**
 	 * Queue a rebuild away from ordinary editor and front-end requests.
@@ -20,6 +22,23 @@ final class Indexer {
 	 * @return bool|\WP_Error
 	 */
 	public static function request_rebuild() {
+		if ( self::has_live_rebuild_lock() ) {
+			update_option( self::RERUN_OPTION, 1, false );
+
+			// Close the race where the active rebuild finishes between the first
+			// lock check and recording the follow-up request.
+			if ( self::has_live_rebuild_lock() ) {
+				return true;
+			}
+
+			delete_option( self::RERUN_OPTION );
+			return self::request_rebuild();
+		}
+
+		if ( get_option( self::LOCK_OPTION ) ) {
+			delete_option( self::LOCK_OPTION );
+		}
+
 		if ( wp_next_scheduled( self::REBUILD_HOOK ) ) {
 			return true;
 		}
@@ -67,7 +86,7 @@ final class Indexer {
 		);
 
 		try {
-			$count = self::build_generation( $generation );
+			self::build_generation( $generation );
 
 			// This option update is the index cutover. Until it succeeds, readers
 			// continue using the prior complete generation.
@@ -75,6 +94,8 @@ final class Indexer {
 				&& $generation !== get_option( Schema::GENERATION_OPTION ) ) {
 				throw new \RuntimeException( 'Unable to activate the rebuilt index generation.' );
 			}
+
+			$count = self::count_generation( $generation );
 
 			update_option(
 				self::STATE_OPTION,
@@ -90,7 +111,8 @@ final class Indexer {
 			);
 
 			self::delete_other_generations( $generation );
-			delete_option( self::LOCK_OPTION );
+			self::delete_tombstones( $generation );
+			self::finish_rebuild_request();
 
 			return true;
 		} catch ( \Throwable $error ) {
@@ -107,7 +129,7 @@ final class Indexer {
 				),
 				false
 			);
-			delete_option( self::LOCK_OPTION );
+			self::finish_rebuild_request();
 
 			return new \WP_Error( 'intertexere_rebuild_failed', $error->getMessage() );
 		}
@@ -166,6 +188,22 @@ final class Indexer {
 		global $wpdb;
 
 		$wpdb->delete( Schema::table_name(), array( 'post_id' => $post_id ), array( '%d' ) );
+
+		$state      = self::state();
+		$generation = 'running' === $state['status'] ? (string) $state['generation'] : '';
+		$active     = (string) get_option( Schema::GENERATION_OPTION, '' );
+
+		if ( '' === $generation || $generation === $active ) {
+			return;
+		}
+
+		self::write_tombstone( $post_id, $generation );
+
+		// If cutover raced the tombstone write, the replacement is now active
+		// and no traversal write can resurrect this post.
+		if ( $generation === (string) get_option( Schema::GENERATION_OPTION, '' ) ) {
+			self::delete_tombstone( $post_id, $generation );
+		}
 	}
 
 	/**
@@ -232,8 +270,9 @@ final class Indexer {
 
 		return (int) $wpdb->get_var(
 			$wpdb->prepare(
-				'SELECT COUNT(*) FROM ' . Schema::table_name() . ' WHERE generation = %s',
-				$generation
+				'SELECT COUNT(*) FROM ' . Schema::table_name() . ' WHERE generation = %s AND post_status <> %s',
+				$generation,
+				self::TOMBSTONE_STATUS
 			)
 		);
 	}
@@ -249,9 +288,10 @@ final class Indexer {
 
 		$record = $wpdb->get_row(
 			$wpdb->prepare(
-				'SELECT * FROM ' . Schema::table_name() . ' WHERE generation = %s AND post_id = %d',
+				'SELECT * FROM ' . Schema::table_name() . ' WHERE generation = %s AND post_id = %d AND post_status <> %s',
 				(string) get_option( Schema::GENERATION_OPTION, '' ),
-				$post_id
+				$post_id,
+				self::TOMBSTONE_STATUS
 			),
 			ARRAY_A
 		);
@@ -264,43 +304,56 @@ final class Indexer {
 	 *
 	 * @throws \RuntimeException When a database write fails.
 	 */
-	private static function build_generation( string $generation ): int {
-		$count = 0;
-		$page  = 1;
+	private static function build_generation( string $generation ): void {
+		global $wpdb;
 
-		if ( empty( Eligibility::post_types() ) ) {
-			return 0;
+		$last_id       = 0;
+		$post_types    = Eligibility::post_types();
+		$post_statuses = Eligibility::post_statuses();
+
+		if ( empty( $post_types ) || empty( $post_statuses ) ) {
+			return;
 		}
 
-		do {
-			$query = new \WP_Query(
-				array(
-					'post_type'              => Eligibility::post_types(),
-					'post_status'            => Eligibility::post_statuses(),
-					'posts_per_page'         => self::BATCH_SIZE,
-					'paged'                  => $page,
-					'fields'                 => 'ids',
-					'orderby'                => 'ID',
-					'order'                  => 'ASC',
-					'no_found_rows'          => true,
-					'update_post_meta_cache' => false,
-					'update_post_term_cache' => false,
-				)
-			);
+		$type_placeholders   = implode( ', ', array_fill( 0, count( $post_types ), '%s' ) );
+		$status_placeholders = implode( ', ', array_fill( 0, count( $post_statuses ), '%s' ) );
 
-			$ids = $query->posts;
+		while ( true ) {
+			$query_args = array_merge(
+				array( $last_id ),
+				$post_types,
+				$post_statuses,
+				array( self::BATCH_SIZE )
+			);
+			$sql        = $wpdb->prepare(
+				"SELECT ID FROM {$wpdb->posts}
+				WHERE ID > %d
+				AND post_type IN ({$type_placeholders})
+				AND post_status IN ({$status_placeholders})
+				AND post_password = ''
+				ORDER BY ID ASC
+				LIMIT %d",
+				$query_args
+			); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$ids        = array_map( 'intval', $wpdb->get_col( $sql ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+			if ( empty( $ids ) ) {
+				break;
+			}
+
 			foreach ( $ids as $post_id ) {
 				$post = get_post( $post_id );
 				if ( Eligibility::is_eligible( $post ) ) {
-					self::upsert( $post, $generation );
-					++$count;
+					self::upsert( $post, $generation, false );
 				}
 			}
 
-			++$page;
-		} while ( self::BATCH_SIZE === count( $ids ) );
+			$last_id = (int) end( $ids );
 
-		return $count;
+			if ( self::BATCH_SIZE > count( $ids ) ) {
+				break;
+			}
+		}
 	}
 
 	/**
@@ -308,29 +361,38 @@ final class Indexer {
 	 *
 	 * @throws \RuntimeException When the database write fails.
 	 */
-	private static function upsert( \WP_Post $post, string $generation ): void {
+	private static function upsert( \WP_Post $post, string $generation, bool $overwrite = true ): void {
 		global $wpdb;
 
 		$derived = self::derive( $post );
-		$result  = $wpdb->replace(
-			Schema::table_name(),
-			array(
-				'post_id'            => $post->ID,
-				'generation'         => $generation,
-				'post_type'          => $post->post_type,
-				'post_status'        => $post->post_status,
-				'post_modified_gmt'  => '0000-00-00 00:00:00' === $post->post_modified_gmt ? current_time( 'mysql', true ) : $post->post_modified_gmt,
-				'permalink'          => $derived['permalink'],
-				'title'              => $derived['title'],
-				'excerpt'            => $derived['excerpt'],
-				'normalized_content' => $derived['content'],
-				'headings'           => wp_json_encode( $derived['headings'] ),
-				'taxonomies'         => wp_json_encode( $derived['taxonomies'] ),
-				'content_hash'       => $derived['hash'],
-				'indexed_at_gmt'     => current_time( 'mysql', true ),
-			),
-			array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+		$data    = array(
+			'post_id'            => $post->ID,
+			'generation'         => $generation,
+			'post_type'          => $post->post_type,
+			'post_status'        => $post->post_status,
+			'post_modified_gmt'  => '0000-00-00 00:00:00' === $post->post_modified_gmt ? current_time( 'mysql', true ) : $post->post_modified_gmt,
+			'permalink'          => $derived['permalink'],
+			'title'              => $derived['title'],
+			'excerpt'            => $derived['excerpt'],
+			'normalized_content' => $derived['content'],
+			'headings'           => wp_json_encode( $derived['headings'] ),
+			'taxonomies'         => wp_json_encode( $derived['taxonomies'] ),
+			'content_hash'       => $derived['hash'],
+			'indexed_at_gmt'     => current_time( 'mysql', true ),
 		);
+		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' );
+
+		if ( $overwrite ) {
+			$result = $wpdb->replace( Schema::table_name(), $data, $formats );
+		} else {
+			$suppress_errors = $wpdb->suppress_errors();
+			$result          = $wpdb->insert( Schema::table_name(), $data, $formats );
+			$wpdb->suppress_errors( $suppress_errors );
+
+			if ( false === $result && self::generation_has_post( $generation, $post->ID ) ) {
+				return;
+			}
+		}
 
 		if ( false === $result ) {
 			throw new \RuntimeException( 'Unable to write the derived index record for post ' . $post->ID . '.' );
@@ -470,6 +532,108 @@ final class Indexer {
 				'indexed'     => 0,
 				'error'       => '',
 			)
+		);
+	}
+
+	/**
+	 * Determine whether a rebuild lock still represents active work.
+	 */
+	private static function has_live_rebuild_lock(): bool {
+		$locked_at = (int) get_option( self::LOCK_OPTION, 0 );
+
+		return $locked_at > 0 && ( time() - $locked_at ) <= self::LOCK_TTL;
+	}
+
+	/**
+	 * Release the current rebuild and schedule one coalesced follow-up request.
+	 */
+	private static function finish_rebuild_request(): void {
+		delete_option( self::LOCK_OPTION );
+
+		if ( delete_option( self::RERUN_OPTION ) ) {
+			self::request_rebuild();
+		}
+	}
+
+	/**
+	 * Count records in one generation after concurrent lifecycle updates settle.
+	 */
+	private static function count_generation( string $generation ): int {
+		global $wpdb;
+
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . Schema::table_name() . ' WHERE generation = %s AND post_status <> %s',
+				$generation,
+				self::TOMBSTONE_STATUS
+			)
+		);
+	}
+
+	/**
+	 * Record an incremental removal so an older traversal snapshot cannot win.
+	 */
+	private static function write_tombstone( int $post_id, string $generation ): void {
+		global $wpdb;
+
+		$now = current_time( 'mysql', true );
+		$wpdb->replace(
+			Schema::table_name(),
+			array(
+				'post_id'            => $post_id,
+				'generation'         => $generation,
+				'post_type'          => '',
+				'post_status'        => self::TOMBSTONE_STATUS,
+				'post_modified_gmt'  => $now,
+				'permalink'          => '',
+				'title'              => '',
+				'excerpt'            => '',
+				'normalized_content' => '',
+				'headings'           => '[]',
+				'taxonomies'         => '[]',
+				'content_hash'       => hash( 'sha256', '' ),
+				'indexed_at_gmt'     => $now,
+			),
+			array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+		);
+	}
+
+	private static function generation_has_post( string $generation, int $post_id ): bool {
+		global $wpdb;
+
+		return (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM ' . Schema::table_name() . ' WHERE generation = %s AND post_id = %d',
+				$generation,
+				$post_id
+			)
+		);
+	}
+
+	private static function delete_tombstone( int $post_id, string $generation ): void {
+		global $wpdb;
+
+		$wpdb->delete(
+			Schema::table_name(),
+			array(
+				'post_id'     => $post_id,
+				'generation'  => $generation,
+				'post_status' => self::TOMBSTONE_STATUS,
+			),
+			array( '%d', '%s', '%s' )
+		);
+	}
+
+	private static function delete_tombstones( string $generation ): void {
+		global $wpdb;
+
+		$wpdb->delete(
+			Schema::table_name(),
+			array(
+				'generation'  => $generation,
+				'post_status' => self::TOMBSTONE_STATUS,
+			),
+			array( '%s', '%s' )
 		);
 	}
 

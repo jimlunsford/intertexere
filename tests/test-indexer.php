@@ -11,12 +11,14 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 		parent::set_up();
 		update_option( Settings::OPTION, Settings::defaults(), false );
 		delete_option( Indexer::LOCK_OPTION );
+		delete_option( Indexer::RERUN_OPTION );
 		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
 		Indexer::reset();
 	}
 
 	public function tear_down(): void {
 		delete_option( Indexer::LOCK_OPTION );
+		delete_option( Indexer::RERUN_OPTION );
 		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
 		parent::tear_down();
 	}
@@ -157,6 +159,115 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'intertexere_rebuild_locked', $result->get_error_code() );
 		$this->assertSame( $before['content_hash'], Indexer::get_record( $post_id )['content_hash'] );
+	}
+
+	public function test_multi_batch_rebuild_does_not_skip_posts_when_traversed_posts_become_ineligible(): void {
+		$post_ids = self::factory()->post->create_many(
+			105,
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'Eligible batch content.',
+			)
+		);
+		$changed_ids       = array_slice( $post_ids, 0, 2 );
+		$eligibility_count = 0;
+		$callback          = static function ( bool $eligible ) use ( $changed_ids, &$eligibility_count ): bool {
+			++$eligibility_count;
+
+			if ( 100 === $eligibility_count ) {
+				wp_delete_post( $changed_ids[0], true );
+				wp_update_post( array( 'ID' => $changed_ids[1], 'post_status' => 'draft' ) );
+			}
+
+			return $eligible;
+		};
+
+		Indexer::reset();
+		add_filter( 'intertexere_is_post_eligible', $callback );
+
+		try {
+			$result = Indexer::rebuild();
+		} finally {
+			remove_filter( 'intertexere_is_post_eligible', $callback );
+		}
+
+		$this->assertTrue( $result );
+		$this->assertGreaterThan( 100, $eligibility_count );
+		$this->assertSame( 103, Indexer::active_count() );
+		$this->assertSame( 103, Indexer::diagnostics()['total_records'] );
+		$this->assertNull( Indexer::get_record( $changed_ids[0] ) );
+		$this->assertNull( Indexer::get_record( $changed_ids[1] ) );
+
+		foreach ( array_diff( $post_ids, $changed_ids ) as $post_id ) {
+			$this->assertNotNull( Indexer::get_record( $post_id ), 'Eligible post ' . $post_id . ' was skipped during rebuild.' );
+		}
+	}
+
+	public function test_concurrent_mutations_and_second_request_survive_rebuild_cutover(): void {
+		$updated_id = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'Content before rebuild.',
+			)
+		);
+		$deleted_id     = self::factory()->post->create( array( 'post_status' => 'publish' ) );
+		$unpublished_id = self::factory()->post->create( array( 'post_status' => 'publish' ) );
+		$stable_id      = self::factory()->post->create( array( 'post_status' => 'publish' ) );
+		$published_id   = self::factory()->post->create( array( 'post_status' => 'draft' ) );
+		$request_result = null;
+		$running_status = '';
+		$callback_ran   = false;
+		$callback       = static function ( bool $eligible ) use (
+			$updated_id,
+			$deleted_id,
+			$unpublished_id,
+			$published_id,
+			&$request_result,
+			&$running_status,
+			&$callback_ran
+		): bool {
+			if ( $callback_ran ) {
+				return $eligible;
+			}
+
+			$callback_ran   = true;
+			$request_result = Indexer::request_rebuild();
+			$running_status = (string) Indexer::diagnostics()['state']['status'];
+
+			wp_update_post(
+				array(
+					'ID'           => $updated_id,
+					'post_content' => 'Content updated during rebuild.',
+				)
+			);
+			wp_update_post( array( 'ID' => $published_id, 'post_status' => 'publish' ) );
+			wp_delete_post( $deleted_id, true );
+			wp_update_post( array( 'ID' => $unpublished_id, 'post_status' => 'draft' ) );
+
+			return $eligible;
+		};
+
+		Indexer::reset();
+		add_filter( 'intertexere_is_post_eligible', $callback );
+
+		try {
+			$result = Indexer::rebuild();
+		} finally {
+			remove_filter( 'intertexere_is_post_eligible', $callback );
+		}
+
+		$this->assertTrue( $result );
+		$this->assertTrue( $callback_ran );
+		$this->assertTrue( $request_result );
+		$this->assertSame( 'running', $running_status );
+		$this->assertSame( 'Content updated during rebuild.', Indexer::get_record( $updated_id )['normalized_content'] );
+		$this->assertNotNull( Indexer::get_record( $published_id ) );
+		$this->assertNotNull( Indexer::get_record( $stable_id ) );
+		$this->assertNull( Indexer::get_record( $deleted_id ) );
+		$this->assertNull( Indexer::get_record( $unpublished_id ) );
+		$this->assertSame( 3, Indexer::active_count() );
+		$this->assertSame( 3, Indexer::diagnostics()['total_records'] );
+		$this->assertNotFalse( wp_next_scheduled( Indexer::REBUILD_HOOK ) );
 	}
 
 	public function test_changing_slug_refreshes_the_indexed_permalink(): void {
