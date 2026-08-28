@@ -266,6 +266,14 @@ class Intertexere_Indexer_Test extends WP_UnitTestCase {
 		$this->assertNull( Indexer::get_record( $unpublished_id ) );
 		$this->assertSame( Indexer::active_count(), Indexer::diagnostics()['total_records'] );
 		$this->assertNotFalse( wp_next_scheduled( Indexer::REBUILD_HOOK ) );
+		$this->assertFalse( get_option( Indexer::RERUN_OPTION, false ) );
+
+		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
+		$this->assertTrue( Indexer::rebuild() );
+		$this->assertSame( 'Content updated during rebuild.', Indexer::get_record( $updated_id )['normalized_content'] );
+		$this->assertNotNull( Indexer::get_record( $published_id ) );
+		$this->assertNull( Indexer::get_record( $deleted_id ) );
+		$this->assertNull( Indexer::get_record( $unpublished_id ) );
 	}
 
 	public function test_changing_slug_refreshes_the_indexed_permalink(): void {
