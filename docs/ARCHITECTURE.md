@@ -55,9 +55,13 @@ Derived data must be considered disposable and rebuildable from WordPress plus I
 
 ### Link graph
 
-The internal-link graph is derived from actual WordPress content.
+The internal-link graph is derived from literal links in eligible WordPress content. A resolved relationship uses the WordPress target post ID as its durable identity; the observed URL remains derived evidence rather than the sole identity. Outbound edges are stored by source, and inbound relationships are derived from the same edge records by target post ID so parallel copies cannot drift.
+
+Duplicate occurrences and self-links must be represented deliberately. Full graph rebuilds use stable post-ID keyset traversal, replacement generations, incremental dual writes, and atomic cutover so concurrent content changes cannot be lost or stale edges resurrected.
 
 Existing links remain normal links in post content. Intertexere must not require proprietary shortcodes, blocks, redirect layers, or runtime replacement markup merely to preserve a link it inserted.
+
+The detailed milestone 0.2 contract is in [Internal Link Graph](INTERNAL-LINK-GRAPH.md), with completion requirements in [0.2 Acceptance Criteria](ACCEPTANCE-0.2.md).
 
 ## Analysis Pipeline
 
