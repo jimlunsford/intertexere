@@ -29,7 +29,9 @@ Specific API usage will be verified against current official WordPress developer
 
 ## Development Status
 
-The initial roadmap begins with:
+Milestone 0.1 is complete. Milestone 0.2 is planned and not yet implemented.
+
+The initial roadmap is:
 
 1. plugin foundation and content indexing
 2. internal-link graph
@@ -44,6 +46,9 @@ The initial roadmap begins with:
 - [Product Rules](docs/PRODUCT-RULES.md)
 - [Development Rules](docs/DEVELOPMENT.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Internal Link Graph design](docs/INTERNAL-LINK-GRAPH.md)
+- [0.1 Acceptance Criteria](docs/ACCEPTANCE-0.1.md)
+- [0.2 Acceptance Criteria](docs/ACCEPTANCE-0.2.md)
 
 ## Name
 
