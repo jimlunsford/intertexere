@@ -8,6 +8,8 @@ This roadmap is intentionally milestone-oriented. Scope should change when real 
 
 ## 0.1 Foundation and Content Index
 
+Status: complete. See [0.1 Acceptance Criteria](ACCEPTANCE-0.1.md).
+
 Goal: establish a safe WordPress plugin foundation and a rebuildable local understanding of eligible site content.
 
 Scope:
@@ -34,27 +36,31 @@ Acceptance direction:
 
 ## 0.2 Internal Link Graph
 
-Goal: understand the actual internal links already present across the site.
+Status: planned, not implemented. See [Internal Link Graph](INTERNAL-LINK-GRAPH.md) and [0.2 Acceptance Criteria](ACCEPTANCE-0.2.md).
+
+Goal: understand the actual internal links already present across eligible site content.
 
 Scope:
 
-- parse supported WordPress post content
-- identify internal links
-- normalize target URLs
-- map links to target post IDs when possible
-- record outbound edges
-- derive inbound edges
-- detect orphaned or weakly connected content
-- update graph incrementally when content changes
-- rebuild graph from WordPress content
+- parse literal saved WordPress post content
+- identify internal links and distinguish external links
+- normalize absolute, relative, and WordPress-generated target URLs
+- map links to durable target post IDs when possible
+- retain unresolved internal URL evidence without guessing identity
+- record outbound edges and derive inbound relationships
+- handle duplicate occurrences and self-links deliberately
+- update graph state when sources or targets change eligibility
+- handle permalink and slug changes through post identity
+- rebuild the graph safely under concurrent content changes
 
 Acceptance direction:
 
 - existing ordinary links are detected without modifying content
-- duplicate occurrences are handled predictably
-- slug or permalink changes do not leave the graph permanently stale
+- duplicate occurrences and self-links have explicit, testable semantics
+- slug or permalink changes do not stale resolved post-ID relationships
 - external links are not treated as internal graph edges
-- graph state can be rebuilt safely
+- graph state is incrementally correct and safely rebuildable
+- no orphan detection, ranking, recommendations, AI, editor UI, or content mutation is introduced
 
 ## 0.3 Read-Only Editor Suggestions
 
