@@ -35,7 +35,10 @@ final class Link_Resolver {
 			return null;
 		}
 
-		$target_id = (int) url_to_postid( $normalized );
+		$target_id = self::resolve_query_post_id( $normalized );
+		if ( 0 === $target_id ) {
+			$target_id = (int) url_to_postid( $normalized );
+		}
 		if ( $target_id > 0 && ! self::is_resolvable_post( $target_id ) ) {
 			$target_id = 0;
 		}
@@ -208,6 +211,34 @@ final class Link_Resolver {
 		$candidates = array_values( array_unique( $candidates ) );
 
 		return 1 === count( $candidates ) ? (int) $candidates[0] : 0;
+	}
+
+	/**
+	 * Resolve Core's explicit query-style post identifiers deterministically.
+	 *
+	 * Core checks p, page_id, and attachment_id before rewrite rules. Doing the
+	 * same explicitly also keeps these URLs resolvable when a site uses plain
+	 * permalinks and has no rewrite rules to consult.
+	 */
+	private static function resolve_query_post_id( string $url ): int {
+		$query = (string) wp_parse_url( $url, PHP_URL_QUERY );
+		if ( '' === $query ) {
+			return 0;
+		}
+
+		parse_str( $query, $variables );
+		foreach ( array( 'p', 'page_id', 'attachment_id' ) as $name ) {
+			if ( ! isset( $variables[ $name ] ) || ! is_scalar( $variables[ $name ] ) ) {
+				continue;
+			}
+
+			$post_id = absint( $variables[ $name ] );
+			if ( $post_id > 0 && self::is_resolvable_post( $post_id ) ) {
+				return $post_id;
+			}
+		}
+
+		return 0;
 	}
 
 	private static function is_resolvable_post( int $post_id ): bool {
