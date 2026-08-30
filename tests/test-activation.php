@@ -5,12 +5,14 @@
 
 use Intertexere\Indexer;
 use Intertexere\Lifecycle;
+use Intertexere\Link_Graph;
 use Intertexere\Schema;
 
 class Intertexere_Activation_Test extends WP_UnitTestCase {
 	public function tear_down(): void {
 		Lifecycle::add_capability();
 		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
+		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
 		parent::tear_down();
 	}
 
@@ -30,6 +32,10 @@ class Intertexere_Activation_Test extends WP_UnitTestCase {
 		$this->assertSame( Schema::VERSION, get_option( Schema::VERSION_OPTION ) );
 		$this->assertTrue( get_role( 'administrator' )->has_cap( 'manage_intertexere' ) );
 		$this->assertNotFalse( wp_next_scheduled( Indexer::REBUILD_HOOK ) );
+		$this->assertNotFalse( wp_next_scheduled( Link_Graph::REBUILD_HOOK ) );
+		global $wpdb;
+		$this->assertSame( Schema::graph_sources_table_name(), $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', Schema::graph_sources_table_name() ) ) );
+		$this->assertSame( Schema::link_edges_table_name(), $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', Schema::link_edges_table_name() ) ) );
 		$this->assertSame( $before, get_post_field( 'post_content', $post_id ) );
 	}
 
@@ -44,10 +50,12 @@ class Intertexere_Activation_Test extends WP_UnitTestCase {
 		$before_content = get_post_field( 'post_content', $post_id );
 		$before_record  = Indexer::get_record( $post_id );
 		Indexer::request_rebuild();
+		Link_Graph::request_rebuild();
 
 		Lifecycle::deactivate();
 
 		$this->assertFalse( wp_next_scheduled( Indexer::REBUILD_HOOK ) );
+		$this->assertFalse( wp_next_scheduled( Link_Graph::REBUILD_HOOK ) );
 		$this->assertFalse( get_role( 'administrator' )->has_cap( 'manage_intertexere' ) );
 		$this->assertSame( $before_content, get_post_field( 'post_content', $post_id ) );
 		$this->assertSame( $before_record['content_hash'], Indexer::get_record( $post_id )['content_hash'] );

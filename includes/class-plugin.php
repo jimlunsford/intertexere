@@ -26,8 +26,11 @@ final class Plugin {
 
 		Schema::maybe_upgrade();
 		add_action( 'wp_after_insert_post', array( Indexer::class, 'handle_post_saved' ), 10, 2 );
+		add_action( 'wp_after_insert_post', array( Link_Graph::class, 'handle_post_saved' ), 20, 2 );
 		add_action( 'before_delete_post', array( Indexer::class, 'handle_post_deleted' ) );
+		add_action( 'before_delete_post', array( Link_Graph::class, 'handle_post_deleted' ), 20 );
 		add_action( Indexer::REBUILD_HOOK, array( Indexer::class, 'rebuild' ) );
+		add_action( Link_Graph::REBUILD_HOOK, array( Link_Graph::class, 'rebuild' ) );
 		add_action( 'update_option_' . Settings::OPTION, array( self::class, 'settings_changed' ), 10, 2 );
 
 		if ( is_admin() ) {
@@ -60,6 +63,7 @@ final class Plugin {
 	public static function settings_changed( $old_value, $new_value ): void {
 		if ( $old_value !== $new_value ) {
 			Indexer::request_rebuild();
+			Link_Graph::request_rebuild();
 		}
 	}
 }
