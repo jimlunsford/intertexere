@@ -644,6 +644,7 @@ final class Link_Graph {
 			}
 			self::commit_transaction();
 			wp_cache_delete( self::STATE_OPTION, 'options' );
+			update_option( self::LOCK_OPTION, time(), false );
 		} catch ( \Throwable $error ) {
 			self::rollback_transaction();
 			throw $error;
