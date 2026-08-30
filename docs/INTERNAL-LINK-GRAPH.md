@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the proposed architecture contract for milestone 0.2. Implementation begins only after the milestone issue is accepted and a focused implementation branch is created.
+This document is the architecture contract implemented by milestone 0.2. The implementation remains pending independent review and merge while it is on `feature/0.2-link-graph`.
 
 ## Purpose and boundaries
 
@@ -43,7 +43,7 @@ The current target permalink is obtained from WordPress by post ID when graph da
 
 This model preserves enough identity for later orphan detection and ranking without implementing either feature in 0.2.
 
-## Proposed schema
+## Schema
 
 The schema version advances from 1 to 2 through the existing repeatable `dbDelta()` upgrade path. Existing content-index rows remain intact.
 
@@ -133,4 +133,3 @@ These operations are data access only. Milestone 0.2 adds no editor surface, rec
 ## Known resolution boundary
 
 A link keeps durable identity after resolution because the edge stores the target post ID. If source content still contains an obsolete URL during a later clean rebuild, resolution depends on aliases WordPress itself can determine, such as retained old-slug metadata. When WordPress cannot deterministically map that URL to a post, Intertexere must preserve it as an unresolved internal URL rather than infer an identity. This is deliberate correctness behavior, not automatic broken-link repair.
-

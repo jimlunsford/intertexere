@@ -221,24 +221,13 @@ final class Link_Resolver {
 	 * permalinks and has no rewrite rules to consult.
 	 */
 	private static function resolve_query_post_id( string $url ): int {
-		$query = (string) wp_parse_url( $url, PHP_URL_QUERY );
-		if ( '' === $query ) {
+		if ( ! preg_match( '#[?&](p|page_id|attachment_id)=(\d+)#', $url, $matches ) ) {
 			return 0;
 		}
 
-		parse_str( $query, $variables );
-		foreach ( array( 'p', 'page_id', 'attachment_id' ) as $name ) {
-			if ( ! isset( $variables[ $name ] ) || ! is_scalar( $variables[ $name ] ) ) {
-				continue;
-			}
+		$post_id = absint( $matches[2] );
 
-			$post_id = absint( $variables[ $name ] );
-			if ( $post_id > 0 && self::is_resolvable_post( $post_id ) ) {
-				return $post_id;
-			}
-		}
-
-		return 0;
+		return $post_id > 0 && self::is_resolvable_post( $post_id ) ? $post_id : 0;
 	}
 
 	private static function is_resolvable_post( int $post_id ): bool {

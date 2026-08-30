@@ -35,6 +35,7 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 	}
 
 	public function test_literal_parser_does_not_execute_shortcodes_or_mutate_content(): void {
+		$this->use_pretty_permalinks();
 		$target_id = $this->create_published_post( 'Literal target' );
 		$executed  = 0;
 		add_shortcode(
