@@ -91,9 +91,11 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$this->assertSame( $child, Link_Resolver::resolve( '//' . $host . $path, $post )['target_post_id'] );
 		$this->assertSame( $child, Link_Resolver::resolve( 'child-page/', $post )['target_post_id'] );
 		$this->assertNull( Link_Resolver::resolve( 'https://external.example/article/', $post ) );
+		$this->assertNull( Link_Resolver::resolve( 'https://sub.' . $host . $path, $post ) );
 		$this->assertNull( Link_Resolver::resolve( 'mailto:editor@example.com', $post ) );
 		$this->assertNull( Link_Resolver::resolve( 'tel:+15555551212', $post ) );
 		$this->assertNull( Link_Resolver::resolve( 'javascript:alert(1)', $post ) );
+		$this->assertNull( Link_Resolver::resolve( 'data:text/plain,not-a-link', $post ) );
 		$this->assertNull( Link_Resolver::resolve( '#local-section', $post ) );
 	}
 
@@ -105,6 +107,12 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$this->assertNull( $edge['target_post_id'] );
 		$this->assertStringContainsString( '?view=full&order=asc', $edge['normalized_url'] );
 		$this->assertStringNotContainsString( '#details', $edge['normalized_url'] );
+
+		$source_with_variants = $this->create_published_post(
+			'Query variants',
+			'<a href="/unresolved-resource/?view=full">Full</a><a href="/unresolved-resource/?view=compact">Compact</a>'
+		);
+		$this->assertCount( 2, Link_Graph::unresolved( $source_with_variants ) );
 	}
 
 	public function test_current_permalink_and_query_style_urls_resolve_to_wordpress_post_identity(): void {
@@ -218,11 +226,12 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$source  = $this->create_published_post( 'Slug source', '<a href="' . esc_url( $old_url ) . '">Link</a>' );
 		$this->assertSame( $target, Link_Graph::outbound( $source )[0]['target_post_id'] );
 
-		wp_update_post( array( 'ID' => $target, 'post_name' => 'current-target-slug' ) );
+		wp_update_post( array( 'ID' => $target, 'post_name' => 'current-target-slug', 'post_title' => 'Current target title' ) );
 		$current_url = get_permalink( $target );
 		$edge        = Link_Graph::outbound( $source )[0];
 		$this->assertSame( $target, $edge['target_post_id'] );
 		$this->assertSame( $current_url, $edge['target_permalink'] );
+		$this->assertSame( 'Current target title', $edge['target_title'] );
 
 		$this->assertTrue( Link_Graph::rebuild() );
 		$rebuilt = Link_Graph::outbound( $source )[0];
