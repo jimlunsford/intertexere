@@ -50,10 +50,15 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$before  = get_post_field( 'post_content', $source );
 
 		$this->assertTrue( Link_Graph::refresh_post( $source ) );
-		$edges = Link_Graph::outbound( $source );
+		$direct = Link_Resolver::resolve( get_permalink( $target_id ), get_post( $source ) );
+		$parser = new WP_HTML_Tag_Processor( get_post_field( 'post_content', $source ) );
+		$this->assertTrue( $parser->next_tag( 'a' ) );
+		$this->assertIsString( $parser->get_attribute( 'href' ) );
+		$this->assertSame( $target_id, $direct['target_post_id'] );
+		$edges = Link_Graph::outbound( $source, true, false );
 
 		$this->assertSame( 0, $executed );
-		$this->assertCount( 1, $edges );
+		$this->assertCount( 1, $edges, wp_json_encode( Link_Graph::diagnostics() ) );
 		$this->assertSame( $target_id, $edges[0]['target_post_id'] );
 		$this->assertSame( $before, get_post_field( 'post_content', $source ) );
 	}

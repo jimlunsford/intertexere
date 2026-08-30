@@ -8,6 +8,20 @@ use Intertexere\Link_Graph;
 use Intertexere\Schema;
 
 class Intertexere_Schema_Test extends WP_UnitTestCase {
+	public function set_up(): void {
+		parent::set_up();
+		delete_option( Link_Graph::LOCK_OPTION );
+		delete_option( Link_Graph::RERUN_OPTION );
+		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
+	}
+
+	public function tear_down(): void {
+		delete_option( Link_Graph::LOCK_OPTION );
+		delete_option( Link_Graph::RERUN_OPTION );
+		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
+		parent::tear_down();
+	}
+
 	public function test_version_one_upgrade_is_repeatable_and_preserves_index_data_and_posts(): void {
 		global $wpdb;
 
