@@ -245,9 +245,10 @@ final class Link_Resolver {
 	 * @param array<string, mixed> $parts Parsed URL parts.
 	 */
 	private static function origin_key( array $parts ): string {
-		$host = strtolower( (string) ( $parts['host'] ?? '' ) );
-		$port = isset( $parts['port'] ) ? (int) $parts['port'] : 0;
-		if ( 80 === $port || 443 === $port ) {
+		$host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+		$scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+		$port   = isset( $parts['port'] ) ? (int) $parts['port'] : 0;
+		if ( $port > 0 && self::is_default_port( $scheme, $port ) ) {
 			$port = 0;
 		}
 

@@ -90,6 +90,8 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$this->assertSame( $child, Link_Resolver::resolve( $path, $post )['target_post_id'] );
 		$this->assertSame( $child, Link_Resolver::resolve( '//' . $host . $path, $post )['target_post_id'] );
 		$this->assertSame( $child, Link_Resolver::resolve( 'child-page/', $post )['target_post_id'] );
+		$this->assertSame( $child, Link_Resolver::resolve( 'https://' . $host . ':443' . $path, $post )['target_post_id'] );
+		$this->assertNull( Link_Resolver::resolve( 'http://' . $host . ':443' . $path, $post ) );
 		$this->assertNull( Link_Resolver::resolve( 'https://external.example/article/', $post ) );
 		$this->assertNull( Link_Resolver::resolve( 'https://sub.' . $host . $path, $post ) );
 		$this->assertNull( Link_Resolver::resolve( 'mailto:editor@example.com', $post ) );
