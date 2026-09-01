@@ -9,7 +9,11 @@ namespace Intertexere;
 
 final class Link_Resolver {
 	/**
-	 * Resolve one literal href found in a source post.
+	 * Resolve one href attribute value already decoded by WordPress Core.
+	 *
+	 * Production callers pass the value returned by
+	 * WP_HTML_Tag_Processor::get_attribute(). This method must not receive raw
+	 * HTML attribute source or decode character references a second time.
 	 *
 	 * External, fragment-only, empty, malformed, and non-web references return
 	 * null. Internal references remain useful even when WordPress cannot map them
@@ -18,7 +22,7 @@ final class Link_Resolver {
 	 * @return array{normalized_url:string,target_post_id:?int,target_identity_hash:string,is_self:int}|null
 	 */
 	public static function resolve( string $href, \WP_Post $source ): ?array {
-		$href = trim( html_entity_decode( $href, ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
+		$href = trim( $href );
 
 		if ( '' === $href || '#' === substr( $href, 0, 1 ) ) {
 			return null;

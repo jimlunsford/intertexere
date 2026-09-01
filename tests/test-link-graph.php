@@ -64,6 +64,73 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$this->assertSame( $before, get_post_field( 'post_content', $source ) );
 	}
 
+	public function test_saved_href_attributes_are_decoded_exactly_once_before_resolution(): void {
+		$this->use_pretty_permalinks();
+		$target = $this->create_published_post( 'Attribute decoding target' );
+		$content = '<a href="/encoded/?value=one&amp;amp;two">Double escaped</a>'
+			. '<a href="/encoded/?value=one&amp;two">Normally escaped</a>'
+			. '<a href="javascript&amp;colon;alert(1)">Literal character-reference text</a>'
+			. '<a href="/?p=' . $target . '&amp;view=full">Query-style target</a>'
+			. '<a href="' . get_permalink( $target ) . '">Current permalink target</a>';
+		$source = $this->create_published_post( 'Attribute decoding source', $content );
+		$before = get_post_field( 'post_content', $source );
+
+		$processor = new WP_HTML_Tag_Processor( $before );
+		$hrefs     = array();
+		while ( $processor->next_tag( 'a' ) ) {
+			$href = $processor->get_attribute( 'href' );
+			if ( is_string( $href ) ) {
+				$hrefs[] = $href;
+			}
+		}
+
+		$this->assertSame(
+			array(
+				'/encoded/?value=one&amp;two',
+				'/encoded/?value=one&two',
+				'javascript&colon;alert(1)',
+				'/?p=' . $target . '&view=full',
+				get_permalink( $target ),
+			),
+			$hrefs,
+			'WordPress must decode each saved href attribute exactly once.'
+		);
+
+		$this->assertTrue( Link_Graph::refresh_post( $source ) );
+		$all        = Link_Graph::outbound( $source, true, false );
+		$unresolved = Link_Graph::unresolved( $source );
+		$this->assertCount( 4, $all );
+		$this->assertCount( 3, $unresolved );
+
+		$unresolved_by_url = array();
+		$literal_reference = null;
+		foreach ( $unresolved as $edge ) {
+			$unresolved_by_url[ $edge['normalized_url'] ] = $edge;
+			if ( false !== strpos( $edge['normalized_url'], 'javascript&colon;alert(1)' ) ) {
+				$literal_reference = $edge;
+			}
+		}
+
+		$double_escaped_url = home_url( '/encoded/?value=one&amp;two' );
+		$normal_escaped_url = home_url( '/encoded/?value=one&two' );
+		$this->assertArrayHasKey( $double_escaped_url, $unresolved_by_url );
+		$this->assertArrayHasKey( $normal_escaped_url, $unresolved_by_url );
+		$this->assertSame( 1, $unresolved_by_url[ $double_escaped_url ]['occurrence_count'] );
+		$this->assertSame( 1, $unresolved_by_url[ $normal_escaped_url ]['occurrence_count'] );
+		$this->assertNotSame(
+			$unresolved_by_url[ $double_escaped_url ]['target_identity_hash'],
+			$unresolved_by_url[ $normal_escaped_url ]['target_identity_hash'],
+			'Distinct query identities must not aggregate after parsing.'
+		);
+		$this->assertNotNull( $literal_reference );
+		$this->assertStringNotContainsString( 'javascript:alert(1)', wp_json_encode( $all ) );
+
+		$resolved = $this->edge_for_target( $all, $target );
+		$this->assertSame( 2, $resolved['occurrence_count'] );
+		$this->assertStringContainsString( '/?p=' . $target . '&view=full', $resolved['normalized_url'] );
+		$this->assertSame( $before, get_post_field( 'post_content', $source ) );
+	}
+
 	public function test_url_classification_handles_supported_forms_and_excludes_external_or_non_web_links(): void {
 		$this->use_pretty_permalinks();
 		$source = self::factory()->post->create(

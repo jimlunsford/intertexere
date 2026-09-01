@@ -34,9 +34,10 @@ These links are references, not substitutes for verifying current runtime behavi
 - `wp_old_slug_redirect()`: https://developer.wordpress.org/reference/functions/wp_old_slug_redirect/
 - `_find_post_by_old_slug()`: https://developer.wordpress.org/reference/functions/_find_post_by_old_slug/
 
+In WordPress 7.1, `WP_HTML_Tag_Processor::get_attribute()` returns the value produced by Core's decoded-attribute path, including one character-reference decoding pass. Intertexere passes that value directly into URL resolution and does not entity-decode it again. Integration coverage verifies the complete saved-content-to-edge path, including deliberately double-escaped character-reference text.
+
 The 0.2 implementation also verifies query-style post IDs, current permalinks, relative-reference normalization, fragments, query preservation, and old-slug behavior in the WordPress 7.1 integration matrix. Old-slug resolution is accepted only for one exact non-hierarchical path candidate. Ambiguous or unsupported obsolete URLs remain unresolved.
 
 ## Development Rule
 
 Before implementation depends on a current WordPress API detail, re-check the current official documentation and actual API behavior. Intertexere should not preserve a stale assumption merely because it appears in an older planning document.
-
