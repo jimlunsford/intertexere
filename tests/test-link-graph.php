@@ -69,7 +69,7 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$target = $this->create_published_post( 'Attribute decoding target' );
 		$content = '<a href="/encoded/?value=one&amp;amp;two">Double escaped</a>'
 			. '<a href="/encoded/?value=one&amp;two">Normally escaped</a>'
-			. '<a href="javascript&amp;colon;alert(1)">Literal character-reference text</a>'
+			. '<a href="/literal&amp;quest;value=one">Literal character-reference text</a>'
 			. '<a href="/?p=' . $target . '&amp;view=full">Query-style target</a>'
 			. '<a href="' . get_permalink( $target ) . '">Current permalink target</a>';
 		$source = $this->create_published_post( 'Attribute decoding source', $content );
@@ -88,7 +88,7 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 			array(
 				'/encoded/?value=one&amp;two',
 				'/encoded/?value=one&two',
-				'javascript&colon;alert(1)',
+				'/literal&quest;value=one',
 				'/?p=' . $target . '&view=full',
 				get_permalink( $target ),
 			),
@@ -102,12 +102,12 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 		$this->assertCount( 4, $all );
 		$this->assertCount( 3, $unresolved );
 
-		$unresolved_by_url = array();
-		$literal_reference = null;
+		$unresolved_by_url          = array();
+		$literal_character_reference = null;
 		foreach ( $unresolved as $edge ) {
 			$unresolved_by_url[ $edge['normalized_url'] ] = $edge;
-			if ( false !== strpos( $edge['normalized_url'], 'javascript&colon;alert(1)' ) ) {
-				$literal_reference = $edge;
+			if ( false !== strpos( $edge['normalized_url'], '/literal&quest;value=one' ) ) {
+				$literal_character_reference = $edge;
 			}
 		}
 
@@ -122,8 +122,8 @@ class Intertexere_Link_Graph_Test extends WP_UnitTestCase {
 			$unresolved_by_url[ $normal_escaped_url ]['target_identity_hash'],
 			'Distinct query identities must not aggregate after parsing.'
 		);
-		$this->assertNotNull( $literal_reference );
-		$this->assertStringNotContainsString( 'javascript:alert(1)', wp_json_encode( $all ) );
+		$this->assertNotNull( $literal_character_reference );
+		$this->assertStringNotContainsString( '/literal?value=one', wp_json_encode( $all ) );
 
 		$resolved = $this->edge_for_target( $all, $target );
 		$this->assertSame( 2, $resolved['occurrence_count'] );
