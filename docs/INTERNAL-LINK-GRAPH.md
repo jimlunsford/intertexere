@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the proposed architecture contract for milestone 0.2. Implementation begins only after the milestone issue is accepted and a focused implementation branch is created.
+This document is the architecture contract implemented by milestone 0.2. The implementation remains pending independent review and merge while it is on `feature/0.2-link-graph`.
 
 ## Purpose and boundaries
 
@@ -15,6 +15,7 @@ Milestone 0.2 is read-only with respect to article content. It does not add AI, 
 - Analyze the literal saved `post_content` of posts that satisfy the existing eligibility contract.
 - Discover anchor elements without executing shortcodes, rendering dynamic blocks, or running front-end filters.
 - Prefer WordPress Core's HTML tag processor for anchor traversal, after verifying its WordPress 7.1 behavior during implementation.
+- Treat `WP_HTML_Tag_Processor::get_attribute( 'href' )` as the decoded attribute value. Pass that value directly to URL resolution without decoding HTML character references again.
 - Never write to a post while parsing, refreshing, rebuilding, or clearing graph data.
 
 ## URL classification and resolution
@@ -24,7 +25,7 @@ Each discovered `href` is classified before any graph row is written.
 1. Ignore empty values, fragment-only references, and non-web schemes such as `mailto:`, `tel:`, `javascript:`, and `data:`.
 2. Resolve root-relative, protocol-relative, and document-relative references against WordPress and the source post permalink as appropriate.
 3. Treat the normalized origins of `home_url()` and `site_url()` as internal. Scheme differences and default ports do not make an otherwise matching WordPress origin external. Other hosts, including subdomains, are external unless a later explicit product decision adds configuration.
-4. Remove fragments before target resolution. Preserve meaningful paths and query strings, and do not apply normalization that could merge distinct resources.
+4. Remove fragments before target resolution. Preserve meaningful paths and query strings, including literal character-reference text left after WordPress performs its one HTML decoding pass, and do not apply normalization that could merge distinct resources.
 5. Resolve query-style WordPress post IDs and WordPress-generated permalinks through verified Core APIs. Use old-slug metadata only when WordPress can resolve it deterministically. Never guess a post identity.
 6. Store the WordPress post ID as the durable target identity whenever resolution succeeds. Retain a normalized internal URL with a nullable target ID when an internal URL cannot be resolved.
 7. Do not persist external URLs as graph edges. Classification remains independently testable and diagnostics may report aggregate external counts.
@@ -43,7 +44,7 @@ The current target permalink is obtained from WordPress by post ID when graph da
 
 This model preserves enough identity for later orphan detection and ranking without implementing either feature in 0.2.
 
-## Proposed schema
+## Schema
 
 The schema version advances from 1 to 2 through the existing repeatable `dbDelta()` upgrade path. Existing content-index rows remain intact.
 
@@ -133,4 +134,3 @@ These operations are data access only. Milestone 0.2 adds no editor surface, rec
 ## Known resolution boundary
 
 A link keeps durable identity after resolution because the edge stores the target post ID. If source content still contains an obsolete URL during a later clean rebuild, resolution depends on aliases WordPress itself can determine, such as retained old-slug metadata. When WordPress cannot deterministically map that URL to a post, Intertexere must preserve it as an unresolved internal URL rather than infer an identity. This is deliberate correctness behavior, not automatic broken-link repair.
-

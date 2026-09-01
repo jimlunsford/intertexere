@@ -28,6 +28,7 @@ final class Lifecycle {
 		Settings::install();
 		Schema::install();
 		Indexer::request_rebuild();
+		Link_Graph::request_rebuild();
 	}
 
 	/**
@@ -35,8 +36,11 @@ final class Lifecycle {
 	 */
 	public static function deactivate(): void {
 		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
+		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
 		delete_option( Indexer::LOCK_OPTION );
 		delete_option( Indexer::RERUN_OPTION );
+		delete_option( Link_Graph::LOCK_OPTION );
+		delete_option( Link_Graph::RERUN_OPTION );
 		self::remove_capability();
 	}
 

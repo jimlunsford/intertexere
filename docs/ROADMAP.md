@@ -36,7 +36,7 @@ Acceptance direction:
 
 ## 0.2 Internal Link Graph
 
-Status: planned, not implemented. See [Internal Link Graph](INTERNAL-LINK-GRAPH.md) and [0.2 Acceptance Criteria](ACCEPTANCE-0.2.md).
+Status: implemented on `feature/0.2-link-graph`, pending independent review and merge. See [Internal Link Graph](INTERNAL-LINK-GRAPH.md) and [0.2 Acceptance Criteria](ACCEPTANCE-0.2.md).
 
 Goal: understand the actual internal links already present across eligible site content.
 
@@ -166,3 +166,4 @@ These are intentionally not part of the initial contract:
 - WordPress.org public release
 
 Each requires a deliberate product decision after the private plugin proves useful on a real site.
+
