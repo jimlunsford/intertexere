@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is the architecture contract implemented by milestone 0.2. The implementation remains pending independent review and merge while it is on `feature/0.2-link-graph`.
+This document is the architecture contract implemented by milestone 0.2. The independently reviewed implementation was merged into `main` by PR #5.
 
 ## Purpose and boundaries
 

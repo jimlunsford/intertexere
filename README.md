@@ -29,7 +29,7 @@ Specific API usage will be verified against current official WordPress developer
 
 ## Development Status
 
-Milestone 0.1 is complete. Milestone 0.2 is implemented on its focused feature branch and pending independent review and merge.
+Milestones 0.1 and 0.2 are complete. Milestone 0.3 is planned and not implemented.
 
 The initial roadmap is:
 
@@ -47,8 +47,10 @@ The initial roadmap is:
 - [Development Rules](docs/DEVELOPMENT.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Internal Link Graph design](docs/INTERNAL-LINK-GRAPH.md)
+- [Read-Only Editor Suggestions design](docs/EDITOR-SUGGESTIONS.md)
 - [0.1 Acceptance Criteria](docs/ACCEPTANCE-0.1.md)
 - [0.2 Acceptance Criteria](docs/ACCEPTANCE-0.2.md)
+- [0.3 Acceptance Criteria](docs/ACCEPTANCE-0.3.md)
 
 ## Name
 

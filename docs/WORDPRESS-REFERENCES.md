@@ -10,11 +10,31 @@ These links are references, not substitutes for verifying current runtime behavi
 
 - WordPress 7.1 Field Guide: https://make.wordpress.org/core/2026/08/05/wordpress-7-1-field-guide/
 - WordPress 7.1 roadmap: https://make.wordpress.org/core/2026/06/19/roadmap-to-7-1/
+- Iframed editor changes in WordPress 7.1: https://make.wordpress.org/core/2026/08/03/iframed-editor-changes-in-wordpress-7-1/
+
+WordPress 7.1 always uses an iframe for the post editor canvas. Intertexere's 0.3 integration therefore uses editor data stores and native SlotFill components and does not query or manipulate the canvas DOM.
+
+## Block Editor
+
+- Enqueueing assets in the editor: https://developer.wordpress.org/block-editor/how-to-guides/enqueueing-assets-in-the-editor/
+- `registerPlugin`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-plugins/
+- `PluginSidebar`: https://developer.wordpress.org/block-editor/reference-guides/slotfills/plugin-sidebar/
+- `core/editor` data: https://developer.wordpress.org/block-editor/reference-guides/data/data-core-editor/
+- `core/block-editor` data: https://developer.wordpress.org/block-editor/reference-guides/data/data-core-block-editor/
+
+Editor UI scripts belong on `enqueue_block_editor_assets`. Current unsaved post attributes come from `core/editor`, and the ordered block tree and client IDs come from `core/block-editor`. Inner-block controllers such as synced patterns and template parts own content in another entity; 0.3 treats them as opaque rather than silently analyzing or rendering external content as part of the current post.
 
 ## Abilities API
 
+- Abilities API handbook: https://developer.wordpress.org/apis/abilities-api/
+- Abilities PHP reference: https://developer.wordpress.org/apis/abilities-api/php-reference/
+- Abilities REST endpoints: https://developer.wordpress.org/apis/abilities-api/rest-api-endpoints/
 - Abilities API improvements in WordPress 7.1: https://make.wordpress.org/core/2026/07/31/abilities-api-improvements-in-wordpress-7-1/
 - JSON Schema preparation for client compatibility in WordPress 7.1: https://make.wordpress.org/core/2026/07/31/json-schema-preparation-for-client-compatibility-in-wordpress-7-1/
+- Client-side Abilities API: https://make.wordpress.org/core/2026/03/24/client-side-abilities-api-in-wordpress-7-0/
+- Public exposure flag for abilities in WordPress 7.1: https://make.wordpress.org/core/2026/08/04/a-unified-public-exposure-flag-for-abilities-in-wordpress-7-1/
+
+The WordPress 7.1 Abilities REST controller requires a read-only ability to execute with GET and puts input in a URL-encoded query parameter. The 0.3 unsaved-draft payload is therefore sent to a narrow authenticated custom REST POST route backed by a reusable read-only PHP service. Intertexere will not mark a read-only analysis as mutating merely to force Ability execution through POST. A later Ability wrapper requires a fresh API review.
 
 ## AI Client
 

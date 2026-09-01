@@ -36,7 +36,7 @@ Acceptance direction:
 
 ## 0.2 Internal Link Graph
 
-Status: implemented on `feature/0.2-link-graph`, pending independent review and merge. See [Internal Link Graph](INTERNAL-LINK-GRAPH.md) and [0.2 Acceptance Criteria](ACCEPTANCE-0.2.md).
+Status: complete. See [Internal Link Graph](INTERNAL-LINK-GRAPH.md) and [0.2 Acceptance Criteria](ACCEPTANCE-0.2.md).
 
 Goal: understand the actual internal links already present across eligible site content.
 
@@ -64,6 +64,8 @@ Acceptance direction:
 
 ## 0.3 Read-Only Editor Suggestions
 
+Status: planned and not implemented. See [Read-Only Editor Suggestions](EDITOR-SUGGESTIONS.md) and [0.3 Acceptance Criteria](ACCEPTANCE-0.3.md).
+
 Goal: bring useful internal-link opportunities into the Block Editor without changing the draft.
 
 Scope:
@@ -78,6 +80,17 @@ Scope:
 - reason for suggestion
 - dismiss and view actions
 - no content mutation
+
+Architecture direction:
+
+- native `PluginSidebar` registered through supported Block Editor APIs
+- current unsaved Block Editor state is authoritative
+- explicit Analyze and Refresh actions rather than analysis on every keystroke
+- bounded deterministic retrieval from WordPress, the active content index, and the active link graph
+- stable published scoring, threshold, exclusions, and ordering
+- session-only dismissals
+- authenticated read-only analysis through a custom REST POST endpoint
+- no schema change and no persistent suggestion store
 
 Acceptance direction:
 
@@ -166,4 +179,3 @@ These are intentionally not part of the initial contract:
 - WordPress.org public release
 
 Each requires a deliberate product decision after the private plugin proves useful on a real site.
-
