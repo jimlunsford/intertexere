@@ -53,6 +53,11 @@ final class Editor_REST {
 			return self::json_required_error();
 		}
 
+		$transport = self::validate_transport_size( $request );
+		if ( is_wp_error( $transport ) ) {
+			return $transport;
+		}
+
 		$payload   = $request->get_json_params();
 		$post_id   = is_array( $payload ) && isset( $payload['post_id'] ) && is_int( $payload['post_id'] ) ? $payload['post_id'] : null;
 		$post_type = is_array( $payload ) && isset( $payload['post_type'] ) && is_string( $payload['post_type'] ) ? $payload['post_type'] : '';
@@ -87,12 +92,44 @@ final class Editor_REST {
 			return self::json_required_error();
 		}
 
+		$transport = self::validate_transport_size( $request );
+		if ( is_wp_error( $transport ) ) {
+			return $transport;
+		}
+
+		/**
+		 * Fires after transport validation and immediately before draft analysis.
+		 *
+		 * This read-boundary hook exists for observability and boundary tests.
+		 */
+		do_action( 'intertexere_editor_rest_before_analysis', $request );
+
 		$result = Editor_Suggestions::analyze( $request->get_json_params() );
 		return is_wp_error( $result ) ? $result : rest_ensure_response( $result );
 	}
 
 	private static function has_json_content_type( \WP_REST_Request $request ): bool {
 		return 'application/json' === strtolower( trim( explode( ';', (string) $request->get_header( 'Content-Type' ) )[0] ) );
+	}
+
+	/**
+	 * Enforce the encoded transport boundary before parsing JSON.
+	 *
+	 * Content-Length is advisory. The body held by WP_REST_Request is the
+	 * authoritative byte sequence that the JSON parser would consume.
+	 *
+	 * @return true|\WP_Error
+	 */
+	private static function validate_transport_size( \WP_REST_Request $request ) {
+		if ( strlen( $request->get_body() ) <= Editor_Suggestions::MAX_PAYLOAD_BYTES ) {
+			return true;
+		}
+
+		return new \WP_Error(
+			'intertexere_payload_too_large',
+			'The draft analysis request exceeds the 256 KiB encoded limit.',
+			array( 'status' => 413 )
+		);
 	}
 
 	private static function json_required_error(): \WP_Error {

@@ -83,6 +83,33 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await expect( page.getByText( /No current suggestion/ ) ).toBeVisible();
 	} );
 
+	test( 'accepts line-separator Unicode without a client-server draft mismatch', async ( {
+		admin,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent.replace(
+				'guide explains',
+				'guide\u2028explains\u2029'
+			),
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+		await expect(
+			page.getByText(
+				'Draft analysis returned for a different editor state.'
+			)
+		).toHaveCount( 0 );
+	} );
+
 	test( 'ignores a late older response and renders recoverable server states', async ( {
 		admin,
 		page,

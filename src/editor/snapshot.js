@@ -19,6 +19,19 @@ export const EXTERNAL_ENTITY_BLOCKS = new Set( [
 	'core/navigation',
 ] );
 
+// Only reviewed Core containers with literal saved InnerBlocks are transparent.
+// Dynamic/controller boundaries and unknown Core or custom parents stay opaque.
+export const SAFE_CONTAINER_BLOCKS = new Set( [
+	'core/group',
+	'core/columns',
+	'core/column',
+	'core/cover',
+	'core/media-text',
+	'core/list',
+	'core/quote',
+	'core/gallery',
+] );
+
 const sortNumericUnique = ( values ) =>
 	[
 		...new Set(
@@ -57,7 +70,9 @@ export function collectUnits( blocks, limits ) {
 			return;
 		}
 
-		( block.innerBlocks || [] ).forEach( visit );
+		if ( SAFE_CONTAINER_BLOCKS.has( block.name ) ) {
+			( block.innerBlocks || [] ).forEach( visit );
+		}
 	};
 
 	( blocks || [] ).forEach( visit );

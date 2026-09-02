@@ -144,6 +144,26 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertSame( 64, strlen( Editor_Suggestions::draft_hash( $validated_a ) ) );
 	}
 
+	public function test_shared_ecmascript_canonical_hash_fixture_is_byte_identical(): void {
+		$fixture = json_decode( file_get_contents( __DIR__ . '/fixtures/editor-draft-hash.json' ), true );
+		$this->assertIsArray( $fixture );
+		$canonical = Editor_Suggestions::draft_hash_input( $fixture['payload'] );
+
+		$this->assertSame( $fixture['canonical'], $canonical );
+		$this->assertSame( $fixture['sha256'], hash( 'sha256', $canonical ) );
+		$this->assertSame( $fixture['sha256'], Editor_Suggestions::draft_hash( $fixture['payload'] ) );
+		$this->assertStringContainsString( "\u{2028}", $canonical );
+		$this->assertStringContainsString( "\u{2029}", $canonical );
+		$this->assertStringNotContainsString( '\\u2028', $canonical );
+		$this->assertStringNotContainsString( '\\u2029', $canonical );
+		$this->assertStringContainsString( '普通 Unicode 😀 emoji', $canonical );
+		$this->assertStringContainsString( '\\"quote\\"', $canonical );
+		$this->assertStringContainsString( '\\\\ backslash', $canonical );
+		$this->assertStringContainsString( '\\ncontrol\\ttext', $canonical );
+		$this->assertStringContainsString( '\\u0001', $canonical );
+		$this->assertStringNotContainsString( '\\/', $canonical );
+	}
+
 	public function test_title_retrieval_scoring_and_current_metadata_are_deterministic(): void {
 		$category = self::factory()->category->create();
 		$target = $this->create_target(

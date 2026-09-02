@@ -26,14 +26,14 @@ The branch must contain no AI or external-provider calls, embeddings, vector dat
 - A newer unsaved draft is never silently replaced by saved database content.
 - Supported paragraphs, headings, list items, quote text, pullquotes, verse, preformatted text, table cells, and literal media captions are represented in editor order.
 - Container traversal does not duplicate child text.
-- Dynamic blocks, shortcode output, raw executable content, template parts, synced or reusable external entities, unsupported blocks, and malformed units are not rendered or executed.
+- Dynamic blocks, shortcode output, raw executable content, template parts, synced or reusable external entities, unsupported blocks, unknown custom-parent subtrees, and malformed units are not rendered or executed.
 - Existing links are recognized from the submitted unsaved markup using the established one-decode URL semantics.
 - Alternate URL forms that deterministically resolve to one post ID are treated as one already-linked destination.
 - No analysis path writes post content, post metadata, terms, index rows, graph rows, revisions, or autosaves.
 
 ### Draft identity and asynchronous correctness
 
-- The server computes the documented canonical draft hash instead of trusting a client hash.
+- The server and editor hash byte-identical ECMAScript-compatible canonical UTF-8 JSON, including literal U+2028 and U+2029, instead of trusting a client hash.
 - The analysis ID includes the draft hash, active index generation, active graph generation, and algorithm version.
 - A relevant draft change marks displayed results stale before a replacement response arrives.
 - An aborted or late response for an older draft or post cannot replace current results.
@@ -82,7 +82,7 @@ The branch must contain no AI or external-provider calls, embeddings, vector dat
 
 ### API security and failure behavior
 
-- The endpoint is a read-only service exposed through authenticated REST POST for payload transport.
+- The endpoint is a read-only service exposed through authenticated REST POST for payload transport, with the actual raw body limited to 256 KiB before JSON parsing.
 - Same-origin cookie authentication and a valid WordPress REST nonce are required.
 - Existing sources require `edit_post`; new sources require the applicable edit capability for a supported post type.
 - Post ID, post type, taxonomy, block, markup, and request sizes are validated against strict schemas and documented limits.

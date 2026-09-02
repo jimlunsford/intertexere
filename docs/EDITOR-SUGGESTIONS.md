@@ -50,7 +50,7 @@ The initial allowlist covers static text that a reader can see and that can be l
 - table cell text, with locations confined to one cell;
 - literal captions from image, gallery child image, audio, and video blocks.
 
-Normal non-controller inner blocks are traversed in editor order. Container text is not counted again when its children are analyzed.
+Traversal is affirmative rather than based on a denylist. Only the separately reviewed Core containers `core/group`, `core/columns`, `core/column`, `core/cover`, `core/media-text`, `core/list`, `core/quote`, and `core/gallery` expose their saved inner blocks in editor order. Container text is not counted again when its children are analyzed. Every other parent is opaque, including unknown Core blocks and custom blocks, unless a later reviewed contract explicitly adds it to this allowlist.
 
 ### Excluded content
 
@@ -77,7 +77,7 @@ The server computes, and the client independently tracks, a versioned SHA-256 dr
 - sorted selected taxonomy IDs by taxonomy;
 - ordered supported analysis units with client ID, block name, and submitted markup.
 
-Object keys and taxonomy IDs are sorted before encoding; block and unit order is preserved. Unsupported block data is not included. The server returns its computed hash and does not trust a client-supplied hash.
+Object keys and taxonomy IDs are sorted before encoding; block and unit order is preserved. Unsupported block data is not included. The hash input is the UTF-8 bytes of the exact ECMAScript `JSON.stringify()` representation: slashes and Unicode are unescaped, U+2028 and U+2029 remain literal UTF-8 characters, JSON syntax characters and controls use normal JSON escapes, the taxonomy map remains an object even when empty, and units remain an ordered array. PHP uses the corresponding JSON flags and structure, and both runtimes must reproduce the shared canonical fixture. The server returns its computed hash and does not trust a client-supplied hash.
 
 An analysis ID combines the draft hash, active content-index generation, active graph generation, and deterministic algorithm version. A result is stale if the current snapshot hash differs, the editor navigates to another post, or the client receives a newer analysis. Stale cards remain visibly marked until refreshed or cleared and cannot acquire a content-changing action in 0.3.
 
@@ -207,12 +207,14 @@ The REST route requires:
 - an allowed, REST-visible Block Editor post type;
 - strict object schemas with unknown fields rejected;
 - integer post IDs, a matching post type, bounded strings, valid block names, and valid taxonomy IDs;
-- a 256 KiB encoded request limit, at most 500 analysis units, and at most 16 KiB per unit;
+- a 256 KiB encoded request limit measured from the actual raw POST body before JSON parsing, at most 500 analysis units, and at most 16 KiB per unit;
 - current eligibility checks for every returned target;
 - standard `WP_Error` responses with non-sensitive messages;
 - escaped text rendering in React and validated current permalinks for the View action.
 
 The endpoint does not save a post, update metadata, write graph or index rows, execute blocks, or call an external service. POST is used only to keep an analysis payload out of the request URL.
+
+`Content-Length` is not trusted as the transport limit because it is advisory. The REST boundary measures the body stored by `WP_REST_Request` and returns 413 before calling `get_json_params()` or the analysis service when it exceeds 262,144 bytes. Decoded and structured service limits remain in place as defense in depth, so JSON escapes cannot shrink an oversized transport into an accepted request.
 
 ## Performance and caching
 

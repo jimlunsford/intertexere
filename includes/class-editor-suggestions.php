@@ -18,6 +18,7 @@ final class Editor_Suggestions {
 	public const MAX_CANDIDATES = 100;
 	public const MAX_RESULTS = 10;
 	public const MIN_SCORE = 25;
+	private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS;
 
 	/** @var array<string, mixed> */
 	private static array $last_metrics = array();
@@ -250,7 +251,7 @@ final class Editor_Suggestions {
 			return self::invalid( 'The draft analysis payload contains missing or unknown fields.' );
 		}
 
-		$encoded = wp_json_encode( $payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		$encoded = wp_json_encode( $payload, self::JSON_FLAGS );
 		if ( ! is_string( $encoded ) || strlen( $encoded ) > self::MAX_PAYLOAD_BYTES ) {
 			return self::invalid( 'The draft analysis payload exceeds the 256 KiB limit.', 413, 'intertexere_payload_too_large' );
 		}
@@ -355,17 +356,27 @@ final class Editor_Suggestions {
 	 * @param array<string, mixed> $validated Validated payload.
 	 */
 	public static function draft_hash( array $validated ): string {
-		return hash(
-			'sha256',
-			self::canonical_json(
-				array(
-					'algorithm_version' => self::ALGORITHM_VERSION,
-					'post_id'           => (int) $validated['post_id'],
-					'post_type'         => (string) $validated['post_type'],
-					'title'             => (string) $validated['title'],
-					'taxonomies'        => $validated['taxonomies'],
-					'units'             => $validated['units'],
-				)
+		return hash( 'sha256', self::draft_hash_input( $validated ) );
+	}
+
+	/**
+	 * Return the exact UTF-8 JSON input shared with ECMAScript JSON.stringify().
+	 *
+	 * The taxonomy map is an object even when empty. Units remain an ordered
+	 * array. Permitted strings use literal Unicode, including U+2028 and U+2029,
+	 * while JSON syntax characters and controls retain normal JSON escaping.
+	 *
+	 * @param array<string, mixed> $validated Validated payload.
+	 */
+	public static function draft_hash_input( array $validated ): string {
+		return self::canonical_json(
+			array(
+				'algorithm_version' => self::ALGORITHM_VERSION,
+				'post_id'           => (int) $validated['post_id'],
+				'post_type'         => (string) $validated['post_type'],
+				'title'             => (string) $validated['title'],
+				'taxonomies'        => (object) $validated['taxonomies'],
+				'units'             => $validated['units'],
 			)
 		);
 	}
@@ -1029,7 +1040,7 @@ final class Editor_Suggestions {
 	}
 
 	private static function canonical_json( array $value ): string {
-		$json = wp_json_encode( $value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		$json = wp_json_encode( $value, self::JSON_FLAGS );
 		return is_string( $json ) ? $json : '';
 	}
 

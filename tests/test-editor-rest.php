@@ -4,6 +4,7 @@
  */
 
 use Intertexere\Editor_REST;
+use Intertexere\Editor_Suggestions;
 use Intertexere\Indexer;
 use Intertexere\Link_Graph;
 use Intertexere\Settings;
@@ -21,6 +22,7 @@ class Intertexere_Editor_REST_Test extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		remove_all_actions( 'intertexere_editor_rest_before_analysis' );
 		wp_set_current_user( 0 );
 		parent::tear_down();
 	}
@@ -106,6 +108,72 @@ class Intertexere_Editor_REST_Test extends WP_UnitTestCase {
 		$this->assertSame( $before_options, (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->options}" ) );
 	}
 
+	public function test_raw_transport_limit_uses_actual_body_bytes_before_analysis(): void {
+		wp_set_current_user( $this->administrator_id );
+		$analysis_calls = 0;
+		add_action(
+			'intertexere_editor_rest_before_analysis',
+			static function () use ( &$analysis_calls ): void {
+				++$analysis_calls;
+			}
+		);
+
+		$ordinary = wp_json_encode( $this->payload( 0 ) );
+		$this->assertIsString( $ordinary );
+		$this->assertLessThan( Editor_Suggestions::MAX_PAYLOAD_BYTES, strlen( $ordinary ) );
+		$this->assertSame( 200, rest_get_server()->dispatch( $this->raw_request( $ordinary ) )->get_status() );
+		$this->assertSame( 1, $analysis_calls );
+
+		$oversized = str_repeat( ' ', Editor_Suggestions::MAX_PAYLOAD_BYTES ) . $ordinary;
+		$request = $this->raw_request( $oversized );
+		$request->set_header( 'Content-Length', '1' );
+		$response = rest_get_server()->dispatch( $request );
+		$this->assertSame( 413, $response->get_status() );
+		$this->assertSame( 'intertexere_payload_too_large', $response->get_data()['code'] );
+		$this->assertSame( 1, $analysis_calls );
+	}
+
+	public function test_json_escape_sequences_cannot_shrink_past_the_raw_transport_limit(): void {
+		wp_set_current_user( $this->administrator_id );
+		$analysis_calls = 0;
+		add_action(
+			'intertexere_editor_rest_before_analysis',
+			static function () use ( &$analysis_calls ): void {
+				++$analysis_calls;
+			}
+		);
+
+		$raw = $this->escaped_oversized_body();
+		$decoded = json_decode( $raw, true );
+		$this->assertIsArray( $decoded );
+		$this->assertGreaterThan( Editor_Suggestions::MAX_PAYLOAD_BYTES, strlen( $raw ) );
+		$this->assertLessThan( Editor_Suggestions::MAX_PAYLOAD_BYTES, strlen( wp_json_encode( $decoded ) ) );
+
+		$response = rest_get_server()->dispatch( $this->raw_request( $raw ) );
+		$this->assertSame( 413, $response->get_status() );
+		$this->assertSame( 'intertexere_payload_too_large', $response->get_data()['code'] );
+		$this->assertSame( 0, $analysis_calls );
+	}
+
+	public function test_rest_boundary_retains_unit_count_and_per_unit_limits(): void {
+		wp_set_current_user( $this->administrator_id );
+		$unit = $this->payload( 0 )['units'][0];
+
+		$too_many = $this->payload( 0 );
+		$too_many['units'] = array_fill( 0, Editor_Suggestions::MAX_UNITS + 1, $unit );
+		$count_response = rest_get_server()->dispatch( $this->request( $too_many ) );
+		$this->assertSame( 413, $count_response->get_status() );
+		$this->assertSame( 'intertexere_too_many_units', $count_response->get_data()['code'] );
+
+		$too_large = $this->payload( 0 );
+		$too_large['units'][0]['markup'] = '<!-- wp:paragraph --><p>'
+			. str_repeat( 'x', Editor_Suggestions::MAX_UNIT_BYTES )
+			. '</p><!-- /wp:paragraph -->';
+		$unit_response = rest_get_server()->dispatch( $this->request( $too_large ) );
+		$this->assertSame( 413, $unit_response->get_status() );
+		$this->assertSame( 'intertexere_unit_too_large', $unit_response->get_data()['code'] );
+	}
+
 	/** @return array<string, mixed> */
 	private function payload( int $post_id ): array {
 		return array(
@@ -124,12 +192,29 @@ class Intertexere_Editor_REST_Test extends WP_UnitTestCase {
 	}
 
 	private function request( array $payload, bool $with_nonce = true ): WP_REST_Request {
+		return $this->raw_request( wp_json_encode( $payload ), $with_nonce );
+	}
+
+	private function raw_request( string $body, bool $with_nonce = true ): WP_REST_Request {
 		$request = new WP_REST_Request( 'POST', '/' . Editor_REST::NAMESPACE . Editor_REST::ROUTE );
 		$request->set_header( 'Content-Type', 'application/json; charset=UTF-8' );
 		if ( $with_nonce ) {
 			$request->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
 		}
-		$request->set_body( wp_json_encode( $payload ) );
+		$request->set_body( $body );
 		return $request;
+	}
+
+	private function escaped_oversized_body(): string {
+		$escaped = str_repeat( '\u0061', 7000 );
+		$units = array();
+		for ( $index = 0; $index < 7; ++$index ) {
+			$units[] = '{"client_id":"escaped-' . $index
+				. '","block_name":"core/paragraph","markup":"<!-- wp:paragraph --><p>'
+				. $escaped . '</p><!-- /wp:paragraph -->"}';
+		}
+
+		return '{"post_id":0,"post_type":"post","title":"Escaped transport boundary",'
+			. '"taxonomies":{},"units":[' . implode( ',', $units ) . ']}';
 	}
 }

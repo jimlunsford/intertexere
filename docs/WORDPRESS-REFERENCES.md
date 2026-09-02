@@ -24,8 +24,12 @@ WordPress 7.1 always uses an iframe for the post editor canvas. Intertexere's 0.
 - `@wordpress/scripts`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-scripts/
 - `@wordpress/e2e-test-utils-playwright`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-e2e-test-utils-playwright/
 - `@wordpress/env`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/
+- Nested blocks and `InnerBlocks`: https://developer.wordpress.org/block-editor/how-to-guides/block-tutorial/nested-blocks-inner-blocks/
+- Static and dynamic block rendering: https://developer.wordpress.org/block-editor/getting-started/fundamentals/static-dynamic-rendering/
+- Core Group block: https://developer.wordpress.org/block-editor/reference-guides/core-blocks/core-blocks-design/core-block-group/
+- Core Query block: https://developer.wordpress.org/block-editor/reference-guides/core-blocks/core-blocks-theme/core-block-query/
 
-Editor UI scripts belong on `enqueue_block_editor_assets`. Current unsaved post attributes come from `core/editor`, and the ordered block tree and client IDs come from `core/block-editor`. Inner-block controllers such as synced patterns and template parts own content in another entity; 0.3 treats them as opaque rather than silently analyzing or rendering external content as part of the current post.
+Editor UI scripts belong on `enqueue_block_editor_assets`. Current unsaved post attributes come from `core/editor`, and the ordered block tree and client IDs come from `core/block-editor`. `InnerBlocks` alone does not establish that a parent is safe for literal analysis: custom blocks can nest arbitrary children, and dynamic or controller blocks can expose editor descendants whose front-end identity comes from another query or entity. The WordPress 7.1 implementation therefore traverses only the reviewed Core structural allowlist recorded in `EDITOR-SUGGESTIONS.md`; synced blocks, template parts, navigation, Query, unknown Core blocks, and custom parents remain opaque.
 
 The 0.3 implementation pins the current WordPress build and Playwright tooling, builds a dependency manifest for Core-provided packages, and verifies the integration against an actual WordPress 7.1 iframe editor. The production code uses editor data stores and native SlotFill APIs only. It does not query the canvas DOM or manipulate the iframe.
 
