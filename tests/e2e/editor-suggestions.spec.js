@@ -789,12 +789,14 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		admin,
 		editor,
 		page,
+		requestUtils,
 	} ) => {
-		await admin.createNewPost( {
+		const source = await requestUtils.createPost( {
 			title: 'AI-kept insertion source',
 			content: insertableContent,
-			showWelcomeGuide: false,
+			status: 'draft',
 		} );
+		await admin.editPost( source.id );
 		const insertionBodies = [];
 		page.on( 'request', ( request ) => {
 			if ( request.url().includes( '/validate-insertion' ) ) {
@@ -822,12 +824,14 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 	test( 'prevents duplicate insertion after current draft reanalysis', async ( {
 		admin,
 		page,
+		requestUtils,
 	} ) => {
-		await admin.createNewPost( {
+		const source = await requestUtils.createPost( {
 			title: 'Duplicate insertion source',
 			content: insertableContent,
-			showWelcomeGuide: false,
+			status: 'draft',
 		} );
+		await admin.editPost( source.id );
 		await openSidebar( page );
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
 		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
@@ -857,11 +861,12 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			method: 'POST',
 			data: { mode: 'insertion-delayed' },
 		} );
-		await admin.createNewPost( {
+		const source = await requestUtils.createPost( {
 			title: 'Delayed insertion source',
 			content: insertableContent,
-			showWelcomeGuide: false,
+			status: 'draft',
 		} );
+		await admin.editPost( source.id );
 		await openSidebar( page );
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
 		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
