@@ -64,7 +64,7 @@ add_filter(
 				$prompt = json_decode( (string) $request['prompt'], true );
 				$evaluations = array();
 				$unit = isset( $prompt['draft']['units'][0] ) && is_array( $prompt['draft']['units'][0] ) ? $prompt['draft']['units'][0] : null;
-				$anchor_text = 'deterministic WordPress performance';
+				$anchor_text = 'Deterministic WordPress Performance';
 				$anchor = is_array( $unit ) && false !== strpos( (string) $unit['text'], $anchor_text )
 					? array( 'unit_key' => (string) $unit['unit_key'], 'exact_text' => $anchor_text, 'occurrence' => 0 )
 					: null;

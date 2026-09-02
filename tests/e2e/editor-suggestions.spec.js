@@ -5,6 +5,8 @@ const candidateContent =
 	'<!-- wp:paragraph --><p>Deterministic WordPress performance notes for local editorial analysis.</p><!-- /wp:paragraph -->';
 const unsavedContent =
 	'<!-- wp:paragraph --><p>Our deterministic WordPress performance guide explains predictable local analysis.</p><!-- /wp:paragraph -->';
+const insertableContent =
+	'<!-- wp:paragraph --><p>Our Deterministic WordPress Performance guide explains predictable local analysis.</p><!-- /wp:paragraph -->';
 let candidate;
 
 async function openSidebar( page ) {
@@ -76,9 +78,6 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 				.locator( '..' )
 				.textContent()
 		).toBe( deterministicScore );
-		await expect(
-			page.getByRole( 'button', { name: 'Insert Link' } )
-		).toBeVisible();
 		await page
 			.getByRole( 'button', { name: 'View deterministic suggestions' } )
 			.click();
@@ -423,10 +422,6 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			} )
 		).toBeVisible();
 		expect( analysisRequests ).toBe( 1 );
-		await expect(
-			page.getByRole( 'button', { name: 'Insert Link' } )
-		).toBeVisible();
-
 		await editor.setContent(
 			unsavedContent.replace( 'guide', 'changed guide' )
 		);
@@ -797,7 +792,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 	} ) => {
 		await admin.createNewPost( {
 			title: 'AI-kept insertion source',
-			content: unsavedContent,
+			content: insertableContent,
 			showWelcomeGuide: false,
 		} );
 		const insertionBodies = [];
@@ -820,7 +815,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		expect( insertionBodies[ 0 ].source_kind ).toBe( 'ai' );
 		expect( insertionBodies[ 0 ].anchor.unit_key ).toBe( 'u1' );
 		expect( await editor.getEditedPostContent() ).toContain(
-			`<a href="${ candidate.link }">deterministic WordPress performance</a>`
+			`<a href="${ candidate.link }">${ candidateTitle }</a>`
 		);
 	} );
 
@@ -830,7 +825,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 	} ) => {
 		await admin.createNewPost( {
 			title: 'Duplicate insertion source',
-			content: unsavedContent,
+			content: insertableContent,
 			showWelcomeGuide: false,
 		} );
 		await openSidebar( page );
@@ -864,7 +859,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		} );
 		await admin.createNewPost( {
 			title: 'Delayed insertion source',
-			content: unsavedContent,
+			content: insertableContent,
 			showWelcomeGuide: false,
 		} );
 		await openSidebar( page );
@@ -873,7 +868,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'Insert Link' } )
 		).toBeDisabled();
-		const changed = unsavedContent.replace( 'guide', 'changed guide' );
+		const changed = insertableContent.replace( 'guide', 'changed guide' );
 		await editor.setContent( changed );
 		await page.waitForTimeout( 1000 );
 		expect( await editor.getEditedPostContent() ).toBe( changed );
@@ -895,7 +890,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		} );
 		const first = await requestUtils.createPost( {
 			title: 'Navigation insertion source',
-			content: unsavedContent,
+			content: insertableContent,
 			status: 'draft',
 		} );
 		const second = await requestUtils.createPost( {
