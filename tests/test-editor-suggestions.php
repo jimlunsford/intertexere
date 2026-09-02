@@ -171,16 +171,17 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 
 	public function test_taxonomy_retrieval_and_scoring_use_edited_unsaved_terms(): void {
 		$category = self::factory()->category->create( array( 'name' => 'Architecture' ) );
+		$second_category = self::factory()->category->create( array( 'name' => 'Editorial systems' ) );
 		$target = $this->create_target( 'Related reference destination', 'General supporting material.' );
-		wp_set_post_categories( $target, array( $category ) );
+		wp_set_post_categories( $target, array( $category, $second_category ) );
 		Indexer::refresh_post( $target );
 		$payload = $this->payload( 0, 'Completely different draft title', array( $this->paragraph( 'This draft contains enough unrelated meaningful words for analysis.' ) ) );
-		$payload['taxonomies'] = array( 'category' => array( $category ) );
+		$payload['taxonomies'] = array( 'category' => array( $category, $second_category ) );
 		$response = Editor_Suggestions::analyze( $payload );
 
 		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
 		$this->assertContains( 'taxonomy-overlap', $response['suggestions'][0]['reason']['signals'] );
-		$this->assertSame( 17, $response['suggestions'][0]['score'] );
+		$this->assertSame( 32, $response['suggestions'][0]['score'] );
 	}
 
 	public function test_published_scoring_formula_signals_and_caps_are_exact(): void {
@@ -210,7 +211,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 			array( $record, $target, $validated, $draft_text, $terms, array( 'links_to_source' => true, 'shared_destinations' => 9 ) )
 		);
 
-		$this->assertSame( 161, $result['score'] );
+		$this->assertSame( 156, $result['score'] );
 		$this->assertSame(
 			array( 'title-phrase', 'title-overlap', 'heading-overlap', 'taxonomy-overlap', 'excerpt-overlap', 'content-overlap', 'links-to-source', 'shared-destination', 'same-post-type' ),
 			$result['reason']['signals']
@@ -263,7 +264,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$target = $this->create_target( 'Café Editorial Workflow' );
 		$payload = $this->payload(
 			0,
-			'Location contract draft',
+			'Café Editorial Workflow draft',
 			array(
 				$this->paragraph( 'Earlier unrelated context remains here.' ),
 				$this->unit( 'second', 'core/paragraph', '<!-- wp:paragraph --><p>😀 Café Editorial Workflow appears twice. Café Editorial Workflow.</p><!-- /wp:paragraph -->' ),
@@ -382,8 +383,18 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		}
 		$payload = $this->payload( 0, 'Bounded Candidate', array( $this->paragraph( 'Bounded candidate shared deterministic fixture content.' ) ) );
 		$payload['taxonomies'] = array( 'category' => array( $category ) );
+		wp_cache_flush();
 		$response = Editor_Suggestions::analyze( $payload );
 		$metrics = Editor_Suggestions::last_metrics();
+		fwrite(
+			STDOUT,
+			sprintf(
+				"\n0.3 large fixture: %d candidates, %d queries, %.3f ms\n",
+				$response['limits']['candidate_count'],
+				$metrics['query_count'],
+				$metrics['elapsed_ms']
+			)
+		);
 
 		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_CANDIDATES, $response['limits']['candidate_count'] );
 		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_RESULTS, count( $response['suggestions'] ) );

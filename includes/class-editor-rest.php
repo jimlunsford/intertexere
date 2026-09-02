@@ -49,6 +49,10 @@ final class Editor_REST {
 			);
 		}
 
+		if ( ! self::has_json_content_type( $request ) ) {
+			return self::json_required_error();
+		}
+
 		$payload   = $request->get_json_params();
 		$post_id   = is_array( $payload ) && isset( $payload['post_id'] ) && is_int( $payload['post_id'] ) ? $payload['post_id'] : null;
 		$post_type = is_array( $payload ) && isset( $payload['post_type'] ) && is_string( $payload['post_type'] ) ? $payload['post_type'] : '';
@@ -79,15 +83,23 @@ final class Editor_REST {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public static function analyze( \WP_REST_Request $request ) {
-		if ( 'application/json' !== strtolower( trim( explode( ';', (string) $request->get_header( 'Content-Type' ) )[0] ) ) ) {
-			return new \WP_Error(
-				'intertexere_json_required',
-				'Editor analysis requires an application/json request.',
-				array( 'status' => 415 )
-			);
+		if ( ! self::has_json_content_type( $request ) ) {
+			return self::json_required_error();
 		}
 
 		$result = Editor_Suggestions::analyze( $request->get_json_params() );
 		return is_wp_error( $result ) ? $result : rest_ensure_response( $result );
+	}
+
+	private static function has_json_content_type( \WP_REST_Request $request ): bool {
+		return 'application/json' === strtolower( trim( explode( ';', (string) $request->get_header( 'Content-Type' ) )[0] ) );
+	}
+
+	private static function json_required_error(): \WP_Error {
+		return new \WP_Error(
+			'intertexere_json_required',
+			'Editor analysis requires an application/json request.',
+			array( 'status' => 415 )
+		);
 	}
 }

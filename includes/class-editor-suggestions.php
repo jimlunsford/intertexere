@@ -111,12 +111,13 @@ final class Editor_Suggestions {
 		$retrieved  = self::retrieve_candidate_ids( $validated, $draft_terms, $draft_phrases, $parsed );
 		$candidate_ids = $retrieved['ids'];
 		$records    = Indexer::get_records( $candidate_ids );
+		$current_targets = self::prime_current_targets( $candidate_ids );
 		$graph_map  = self::candidate_graph_signals( $candidate_ids, $validated['post_id'], $parsed['resolved_target_ids'], $graph_generation );
 		$suggestions = array();
 		$already_linked_count = 0;
 
 		foreach ( $candidate_ids as $candidate_id ) {
-			if ( ! isset( $records[ $candidate_id ] ) || $candidate_id === $validated['post_id'] ) {
+			if ( ! isset( $records[ $candidate_id ], $current_targets[ $candidate_id ] ) || $candidate_id === $validated['post_id'] ) {
 				continue;
 			}
 
@@ -192,6 +193,45 @@ final class Editor_Suggestions {
 			$started_at,
 			$query_started
 		);
+	}
+
+	/**
+	 * Prime current WordPress target objects with one bounded query.
+	 *
+	 * Each target is still fetched again after the race-observation hook. Normal
+	 * WordPress mutations invalidate its object cache, so a changed target is
+	 * reloaded while unchanged targets do not turn into an N+1 query pattern.
+	 *
+	 * @param int[] $candidate_ids Candidate IDs.
+	 * @return array<int, true>
+	 */
+	private static function prime_current_targets( array $candidate_ids ): array {
+		$candidate_ids = array_values( array_unique( array_filter( array_map( 'absint', $candidate_ids ) ) ) );
+		if ( empty( $candidate_ids ) ) {
+			return array();
+		}
+
+		$query = new \WP_Query(
+			array(
+				'post_type'              => Eligibility::post_types(),
+				'post_status'            => array_keys( get_post_stati() ),
+				'post__in'               => $candidate_ids,
+				'posts_per_page'         => count( $candidate_ids ),
+				'no_found_rows'          => true,
+				'ignore_sticky_posts'    => true,
+				'orderby'                => 'post__in',
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+			)
+		);
+		$present = array();
+		foreach ( $query->posts as $post ) {
+			if ( $post instanceof \WP_Post ) {
+				$present[ (int) $post->ID ] = true;
+			}
+		}
+
+		return $present;
 	}
 
 	/**
