@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the approved architecture for milestone 0.5. Milestones 0.1 through 0.4 are complete. Milestone 0.5 is planned and not implemented.
+This document defines the implemented architecture for milestone 0.5. Milestones 0.1 through 0.4 are complete. The 0.5 implementation is on `feature/0.5-link-insertion` and remains subject to the final acceptance and independent-review gate.
 
 ## Goal
 
@@ -69,13 +69,13 @@ Failure at any layer leaves content unchanged.
 
 ## Server validation boundary
 
-0.5 should add a dedicated authenticated POST route such as:
+0.5 adds the dedicated authenticated POST route:
 
 `/intertexere/v1/editor-suggestions/validate-insertion`
 
 The route delegates to a reusable read-only PHP validation service. POST is required for the bounded unsaved draft payload and does not authorize server-side mutation.
 
-The strict request contains only the current editor snapshot, prior analysis identity, positive deterministic target post ID, source kind, and exact anchor evidence. It does not accept a target permalink or eligibility claim from the client or model. Unknown fields are rejected.
+The strict request contains only the current editor snapshot, prior analysis identity, positive deterministic target post ID, source kind, exact anchor evidence, and a bounded list of href values collected from the current unsaved draft for duplicate post-ID resolution. It does not accept a target permalink or eligibility claim from the client or model. Unknown fields are rejected.
 
 The server:
 
@@ -215,7 +215,7 @@ Tests record the measurements. Exceeding a bound requires query-plan review, not
 
 ## Versioning and persistence
 
-Planning alone does not change the public plugin version. The accepted 0.5 implementation should move the plugin from 0.4.0 to 0.5.0 according to the repository's semantic-versioning rule.
+Planning alone did not change the public plugin version. The accepted 0.5 implementation moves the plugin from 0.4.0 to 0.5.0 only on the final acceptance head.
 
 Schema remains version 2. 0.5 requires no migration, table, transient, option, insertion token, pending mutation, stored anchor, suggestion record, or editor snapshot.
 

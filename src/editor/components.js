@@ -97,6 +97,14 @@ export function SuggestionCard( {
 					{ insertionState.message }
 				</p>
 			) }
+			{ insertionEvidence && ! stale && ! insertionState?.message && (
+				<p className="intertexere-suggestion-card__insertion-help">
+					{ __(
+						'Insert Link wraps only the shown existing phrase in this unsaved draft. It does not save or publish the post.',
+						'intertexere'
+					) }
+				</p>
+			) }
 			<div className="intertexere-suggestion-card__actions">
 				{ insertionEvidence &&
 					! stale &&

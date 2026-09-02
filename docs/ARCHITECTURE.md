@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1 through 0.4 are complete. Milestone 0.5 is planned and not implemented.
+Milestones 0.1 through 0.4 are complete. Milestone 0.5 is implemented on its review branch and pending the final independent-review gate.
 
 ## Product Identity
 
@@ -96,7 +96,7 @@ The detailed implementation contract is in [WordPress-Native AI Integration](AI-
 
 ### Stage 3: explicit editorial action
 
-Beginning no earlier than 0.5, the editor may explicitly approve a validated suggestion for insertion. The implementation must revalidate current draft location, target identity, eligibility, and duplicate state at action time.
+Beginning in 0.5, the editor may explicitly approve a validated suggestion for insertion. The implementation revalidates current draft location, target identity, eligibility, and duplicate state at action time.
 
 No suggestion changes post content until that separately implemented explicit action.
 
@@ -201,7 +201,7 @@ Intertexere follows normal WordPress security boundaries:
 3. Internal-link graph, complete in 0.2
 4. Read-only deterministic editor suggestions, complete in 0.3
 5. AI Client and Connectors integration, complete in 0.4
-6. Explicit one-click link insertion, fully planned and not implemented in 0.5
+6. Explicit one-click link insertion, implemented in 0.5 and pending independent review
 7. Site-level link audit and maintenance tools, planned for 0.6
 
 Each stage must remain usable and testable without pulling later behavior forward.

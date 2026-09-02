@@ -232,7 +232,12 @@ function verifyAppliedLink( before, after, range, currentPermalink ) {
 	return true;
 }
 
-export function inspectInsertionRange( block, exactText, occurrence ) {
+export function inspectInsertionRange(
+	block,
+	exactText,
+	occurrence,
+	currentPermalink = ''
+) {
 	if (
 		! block ||
 		! INSERTION_BLOCKS.has( block.name ) ||
@@ -257,7 +262,7 @@ export function inspectInsertionRange( block, exactText, occurrence ) {
 		if ( rangeHasReplacement( value, range ) ) {
 			return { status: 'replacement-overlap' };
 		}
-		const overlap = linkOverlapState( value, range );
+		const overlap = linkOverlapState( value, range, currentPermalink );
 		if ( overlap !== 'clear' ) {
 			return { status: overlap };
 		}
@@ -277,7 +282,8 @@ export function applyValidatedLink( block, evidence, currentPermalink ) {
 	const inspected = inspectInsertionRange(
 		block,
 		evidence.exact_text,
-		evidence.occurrence
+		evidence.occurrence,
+		currentPermalink
 	);
 	if ( inspected.status !== 'ready' ) {
 		return inspected;
@@ -331,6 +337,30 @@ export function applyValidatedLink( block, evidence, currentPermalink ) {
 	} catch ( error ) {
 		return { status: 'malformed', error };
 	}
+}
+
+export function commitValidatedLink(
+	block,
+	evidence,
+	currentPermalink,
+	updateBlockAttributes
+) {
+	if (
+		! block ||
+		block.clientId !== evidence.block_client_id ||
+		block.name !== evidence.block_name ||
+		typeof updateBlockAttributes !== 'function'
+	) {
+		return { status: 'stale' };
+	}
+	const mutation = applyValidatedLink( block, evidence, currentPermalink );
+	if ( mutation.status !== 'ready' ) {
+		return mutation;
+	}
+	updateBlockAttributes( evidence.block_client_id, {
+		content: mutation.nextContent,
+	} );
+	return { ...mutation, status: 'inserted' };
 }
 
 export function resolveInsertionEvidence( suggestion, aiEvaluation, getBlock ) {

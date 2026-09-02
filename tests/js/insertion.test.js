@@ -1,8 +1,9 @@
-import { create, registerFormatType } from '@wordpress/rich-text';
+import { create, registerFormatType, RichTextData } from '@wordpress/rich-text';
 import {
 	INSERTION_BLOCKS,
 	applyValidatedLink,
 	collectDraftLinks,
+	commitValidatedLink,
 	contentIdentity,
 	findExactOccurrence,
 	inspectInsertionRange,
@@ -208,7 +209,7 @@ describe( 'RichText link mutation', () => {
 				evidence( 'Exact' ),
 				'https://example.test/current/'
 			).status
-		).toBe( 'overlap' );
+		).toBe( 'already-linked' );
 		expect(
 			applyValidatedLink(
 				block(
@@ -221,11 +222,73 @@ describe( 'RichText link mutation', () => {
 		).toBe( 'overlap' );
 	} );
 
+	test( 'rejects a range that crosses a RichText replacement object', () => {
+		const current = block(
+			'core/paragraph',
+			'Before <img src="https://example.test/image.jpg" alt="replacement"> after'
+		);
+		const parsed = create( { html: current.attributes.content } );
+		expect( parsed.replacements.some( Boolean ) ).toBe( true );
+		expect( inspectInsertionRange( current, parsed.text, 0 ).status ).toBe(
+			'replacement-overlap'
+		);
+	} );
+
+	test( 'prepares and mutates a maximum-size allowed unit under 100 ms', () => {
+		const current = block(
+			'core/paragraph',
+			`${ 'bounded '.repeat( 1800 ) }Exact`
+		);
+		const started = performance.now();
+		const result = applyValidatedLink(
+			current,
+			evidence( 'Exact' ),
+			'https://example.test/current/'
+		);
+		const elapsed = performance.now() - started;
+		expect( result.status ).toBe( 'ready' );
+		expect( elapsed ).toBeLessThan( 100 );
+	} );
+
 	test( 'retains the current content representation identity', () => {
 		expect( contentIdentity( 'Exact' ) ).toContain(
 			'"representation":"string"'
 		);
 		expect( contentIdentity( null ) ).toBe( '' );
+		const richText = RichTextData.fromHTMLString( 'Exact' );
+		const result = applyValidatedLink(
+			block( 'core/paragraph', richText ),
+			evidence( 'Exact' ),
+			'https://example.test/current/'
+		);
+		expect( result.status ).toBe( 'ready' );
+		expect( result.nextContent ).toBeInstanceOf( RichTextData );
+	} );
+
+	test( 'dispatches exactly once and a repeated current-block attempt is a no-op', () => {
+		const current = block( 'core/paragraph', 'Exact' );
+		const update = jest.fn( ( clientId, attributes ) => {
+			expect( clientId ).toBe( 'block-1' );
+			current.attributes = attributes;
+		} );
+		expect(
+			commitValidatedLink(
+				current,
+				evidence( 'Exact' ),
+				'https://example.test/current/',
+				update
+			).status
+		).toBe( 'inserted' );
+		expect( update ).toHaveBeenCalledTimes( 1 );
+		expect(
+			commitValidatedLink(
+				current,
+				evidence( 'Exact' ),
+				'https://example.test/current/',
+				update
+			).status
+		).toBe( 'already-linked' );
+		expect( update ).toHaveBeenCalledTimes( 1 );
 	} );
 } );
 

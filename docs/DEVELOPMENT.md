@@ -134,11 +134,11 @@ No implementation test may weaken the product contract by bypassing server-side 
 
 ### 0.5 insertion test boundary
 
-Milestone 0.5 is planned in [Explicit Link Insertion](LINK-INSERTION.md) and is not implemented. Its implementation must use the pinned WordPress 7.1 `core/block-editor` data store and `@wordpress/rich-text` behavior. Mocked RichText tests are supporting evidence only; the complete iframe-based WordPress 7.1 Playwright suite must prove the actual editor mutation, dirty state, Undo, Redo where supported, normal save, and plugin-independent saved link.
+Milestone 0.5 is implemented on `feature/0.5-link-insertion` using the pinned WordPress 7.1 `core/block-editor` data store and `@wordpress/rich-text` behavior. Jest RichText tests are supporting evidence; the iframe-based WordPress 7.1 Playwright suite proves the actual editor mutation, dirty state, Undo, Redo, normal save, and plugin-independent saved link.
 
 The validation endpoint is read-only. Tests must prove zero post, revision, autosave, index, graph, option, transient, and schema mutation. Client tests must prove a second local state check after the server response and that late responses, navigation, draft edits, repeated clicks, analysis actions, and AI actions cannot mutate newer state.
 
-Implementation work belongs on `feature/0.5-link-insertion`. Planning documentation does not change the plugin version. The accepted implementation should move 0.4.0 to 0.5.0 only after the full acceptance contract is satisfied.
+Implementation work belongs on `feature/0.5-link-insertion`. The public version moves from 0.4.0 to 0.5.0 only after the full acceptance contract passes on the reviewed head. Schema remains version 2.
 
 ## 10. Content Mutation Requires Stronger Testing
 

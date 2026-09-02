@@ -21,8 +21,8 @@ import {
 import { buildSnapshot, clientHashInput, sha256 } from './snapshot';
 import { AIControls, AnalysisBody } from './components';
 import {
-	applyValidatedLink,
 	collectDraftLinks,
+	commitValidatedLink,
 	contentIdentity,
 	isCurrentValidationResponse,
 	resolveInsertionEvidence,
@@ -707,12 +707,17 @@ export function EditorSuggestionsSidebar() {
 				return;
 			}
 
-			const mutation = applyValidatedLink(
+			const mutation = commitValidatedLink(
 				finalBlock,
 				currentEvidence,
-				response.current_permalink
+				response.current_permalink,
+				( clientId, attributes ) =>
+					dispatch( blockEditorStore ).updateBlockAttributes(
+						clientId,
+						attributes
+					)
 			);
-			if ( mutation.status !== 'ready' ) {
+			if ( mutation.status !== 'inserted' ) {
 				setInsertionStates( ( current ) => ( {
 					...current,
 					[ suggestion.target_post_id ]: {
@@ -725,11 +730,6 @@ export function EditorSuggestionsSidebar() {
 				} ) );
 				return;
 			}
-
-			dispatch( blockEditorStore ).updateBlockAttributes(
-				currentEvidence.block_client_id,
-				{ content: mutation.nextContent }
-			);
 
 			insertionGate.current.invalidate();
 			aiController.current?.abort();

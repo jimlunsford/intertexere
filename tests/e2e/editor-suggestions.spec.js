@@ -686,9 +686,19 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await editor.setContent( formatted );
 
 		let validationRequests = 0;
+		let analysisRequests = 0;
+		let aiRequests = 0;
+		let autosaveRequests = 0;
 		page.on( 'request', ( request ) => {
-			if ( request.url().includes( '/validate-insertion' ) ) {
+			const url = new URL( request.url() );
+			if ( url.pathname.endsWith( '/validate-insertion' ) ) {
 				validationRequests += 1;
+			} else if ( url.pathname.endsWith( '/editor-suggestions' ) ) {
+				analysisRequests += 1;
+			} else if ( url.pathname.endsWith( '/ai-enhance' ) ) {
+				aiRequests += 1;
+			} else if ( url.pathname.includes( '/autosaves' ) ) {
+				autosaveRequests += 1;
 			}
 		} );
 		await openSidebar( page );
@@ -705,6 +715,9 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			'Link inserted in the unsaved draft'
 		);
 		expect( validationRequests ).toBe( 1 );
+		expect( analysisRequests ).toBe( 1 );
+		expect( aiRequests ).toBe( 0 );
+		expect( autosaveRequests ).toBe( 0 );
 
 		const inserted = await editor.getEditedPostContent();
 		const insertedLink = await page.evaluate( ( content ) => {
@@ -742,6 +755,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		expect( databaseBeforeSave.content.raw ).not.toContain(
 			candidate.link
 		);
+		expect( databaseBeforeSave.status ).toBe( 'draft' );
 
 		await page.evaluate( () =>
 			window.wp.data.dispatch( 'core/editor' ).undo()
@@ -762,6 +776,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			params: { context: 'edit' },
 		} );
 		expect( databaseAfterSave.content.raw ).toBe( inserted );
+		expect( databaseAfterSave.status ).toBe( 'draft' );
 		await admin.editPost( source.id );
 		expect( await editor.getEditedPostContent() ).toBe( inserted );
 
