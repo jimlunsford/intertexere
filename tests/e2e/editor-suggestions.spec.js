@@ -22,6 +22,73 @@ async function openSidebar( page ) {
 test.describe( 'Intertexere read-only editor suggestions', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
 		await requestUtils.activatePlugin( 'intertexere' );
+		await requestUtils.activatePlugin( 'intertexere-e2e-adapter' );
+	} );
+
+	test( 'requires explicit AI invocation and overlays fake ranking without changing deterministic score', async ( {
+		admin,
+		editor,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+
+		let aiRequests = 0;
+		page.on( 'request', ( request ) => {
+			if ( request.url().includes( '/editor-suggestions/ai-enhance' ) ) {
+				aiRequests += 1;
+			}
+		} );
+
+		await openSidebar( page );
+		await expect( page.getByText( /Provider processing and retention/ ) ).toHaveCount( 0 );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect( page.getByRole( 'heading', { name: candidateTitle, exact: true } ) ).toBeVisible();
+		await expect( page.getByText( /Provider processing and retention/ ) ).toBeVisible();
+		expect( aiRequests ).toBe( 0 );
+
+		const deterministicScore = await page.getByText( /Deterministic relevance:/ ).locator( '..' ).textContent();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect( page.getByText( /AI contextual rank:/ ) ).toBeVisible();
+		await expect( page.getByText( /Deterministic E2E enhancement/ ) ).toBeVisible();
+		expect( aiRequests ).toBe( 1 );
+		expect( await page.getByText( /Deterministic relevance:/ ).locator( '..' ).textContent() ).toBe( deterministicScore );
+		expect( await page.getByText( 'Insert Link' ).count() ).toBe( 0 );
+
+		await editor.setContent( unsavedContent.replace( 'guide', 'changed guide' ) );
+		await expect( page.getByText( /AI enhancement is stale/ ) ).toBeVisible();
+		expect( aiRequests ).toBe( 1 );
+	} );
+
+	test( 'provider failure preserves deterministic suggestions and normal saving', async ( {
+		admin,
+		editor,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect( page.getByRole( 'heading', { name: candidateTitle, exact: true } ) ).toBeVisible();
+
+		await page.route( '**/intertexere/v1/editor-suggestions/ai-enhance', async ( route ) => {
+			await route.fulfill( {
+				status: 503,
+				contentType: 'application/json',
+				body: JSON.stringify( { code: 'intertexere_ai_network', message: 'Provider unavailable' } ),
+			} );
+		} );
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect( page.getByText( 'Provider unavailable' ) ).toBeVisible();
+		await expect( page.getByRole( 'heading', { name: candidateTitle, exact: true } ) ).toBeVisible();
+		await editor.saveDraft();
+		await expect( page.getByTestId( 'snackbar' ).filter( { hasText: 'Draft saved.' } ) ).toBeVisible();
 	} );
 
 	test.beforeEach( async ( { requestUtils } ) => {

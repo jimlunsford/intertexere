@@ -68,6 +68,7 @@ final class Editor_Assets {
 	 */
 	private static function settings( string $post_type ): array {
 		$taxonomies = array();
+		$ai         = AI_Enhancement::availability();
 		foreach ( get_object_taxonomies( $post_type, 'objects' ) as $taxonomy ) {
 			if ( empty( $taxonomy->show_in_rest ) ) {
 				continue;
@@ -78,6 +79,14 @@ final class Editor_Assets {
 
 		return array(
 			'route'          => '/' . Editor_REST::NAMESPACE . Editor_REST::ROUTE,
+			'aiRoute'        => '/' . Editor_REST::NAMESPACE . Editor_REST::AI_ROUTE,
+			'ai'             => array(
+				'enabled'         => $ai['enabled'],
+				'available'       => $ai['available'],
+				'contractVersion' => AI_Enhancement::CONTRACT_VERSION,
+				'promptVersion'   => AI_Enhancement::PROMPT_VERSION,
+				'maxCandidates'   => AI_Enhancement::MAX_CANDIDATES,
+			),
 			'postType'       => $post_type,
 			'taxonomyFields' => $taxonomies,
 			'limits'         => array(

@@ -2,7 +2,7 @@ import { Button, Notice, Placeholder, Spinner } from '@wordpress/components';
 import { external } from '@wordpress/icons';
 import { __ } from '@wordpress/i18n';
 
-export function SuggestionCard( { suggestion, onDismiss, stale } ) {
+export function SuggestionCard( { suggestion, onDismiss, stale, aiEvaluation } ) {
 	const location = suggestion.location;
 	return (
 		<div className="intertexere-suggestion-card">
@@ -17,6 +17,21 @@ export function SuggestionCard( { suggestion, onDismiss, stale } ) {
 				</strong>{ ' ' }
 				{ suggestion.score }
 			</p>
+			{ aiEvaluation && (
+				<div className="intertexere-suggestion-card__ai">
+					<p>
+						<strong>{ __( 'AI contextual rank:', 'intertexere' ) }</strong>{ ' ' }
+						{ aiEvaluation.rank }
+					</p>
+					<p>{ aiEvaluation.reason }</p>
+					{ aiEvaluation.anchor?.exact_text && (
+						<p>
+							<strong>{ __( 'AI-selected existing phrase:', 'intertexere' ) }</strong>{ ' ' }
+							“{ aiEvaluation.anchor.exact_text }”
+						</p>
+					) }
+				</div>
+			) }
 			{ location?.anchor_text && (
 				<p>
 					<strong>{ __( 'Proposed phrase:', 'intertexere' ) }</strong>{ ' ' }
@@ -75,6 +90,8 @@ export function AnalysisBody( {
 	suggestions,
 	stale,
 	onDismiss,
+	aiEvaluations = new Map(),
+	enhancedMode = false,
 } ) {
 	if ( status === 'loading' ) {
 		return (
@@ -101,10 +118,9 @@ export function AnalysisBody( {
 	if ( response && suggestions.length === 0 ) {
 		return (
 			<p>
-				{ __(
-					'No current suggestion meets the deterministic relevance threshold.',
-					'intertexere'
-				) }
+				{ enhancedMode
+					? __( 'AI kept no candidates. The deterministic result remains available.', 'intertexere' )
+					: __( 'No current suggestion meets the deterministic relevance threshold.', 'intertexere' ) }
 			</p>
 		);
 	}
@@ -114,6 +130,7 @@ export function AnalysisBody( {
 				key={ suggestion.target_post_id }
 				suggestion={ suggestion }
 				stale={ stale }
+				aiEvaluation={ aiEvaluations.get( suggestion.target_post_id ) }
 				onDismiss={ () => onDismiss( suggestion.target_post_id ) }
 			/>
 		) );
@@ -125,5 +142,66 @@ export function AnalysisBody( {
 				'intertexere'
 			) }
 		</p>
+	);
+}
+
+export function AIControls( {
+	configured,
+	status,
+	error,
+	onEnhance,
+	onToggleMode,
+	enhancedMode,
+	hasDeterministicResults,
+} ) {
+	if ( ! hasDeterministicResults ) {
+		return null;
+	}
+
+	return (
+		<div className="intertexere-ai-controls">
+			<h3>{ __( 'Optional AI enhancement', 'intertexere' ) }</h3>
+			<p>
+				{ __( 'Deterministic suggestions work without AI. If you explicitly enhance them, the unsaved title, bounded draft excerpts, and bounded candidate context may leave this WordPress server through the provider configured in WordPress. Provider processing and retention are governed by that provider, not Intertexere.', 'intertexere' ) }
+			</p>
+			{ status === 'disabled' && (
+				<Notice status="info" isDismissible={ false }>
+					{ __( 'AI enhancement is disabled in Intertexere settings.', 'intertexere' ) }
+				</Notice>
+			) }
+			{ status === 'unavailable' && (
+				<Notice status="warning" isDismissible={ false }>
+					{ error || __( 'No compatible configured AI model is available.', 'intertexere' ) }
+				</Notice>
+			) }
+			{ status === 'failed' && (
+				<Notice status="error" isDismissible={ false }>
+					{ error || __( 'AI enhancement failed. Deterministic suggestions are unchanged.', 'intertexere' ) }
+				</Notice>
+			) }
+			{ status === 'stale' && (
+				<Notice status="warning" isDismissible={ false }>
+					{ __( 'The AI enhancement is stale. Refresh deterministic suggestions before enhancing again.', 'intertexere' ) }
+				</Notice>
+			) }
+			{ configured && ! [ 'disabled', 'unavailable', 'stale' ].includes( status ) && (
+				<Button
+					variant="secondary"
+					onClick={ onEnhance }
+					disabled={ status === 'loading' }
+				>
+					{ status === 'loading'
+						? __( 'Enhancing with AI…', 'intertexere' )
+						: __( 'Enhance with AI', 'intertexere' ) }
+				</Button>
+			) }
+			{ status === 'enhanced' && (
+				<Button variant="tertiary" onClick={ onToggleMode }>
+					{ enhancedMode
+						? __( 'View deterministic suggestions', 'intertexere' )
+						: __( 'View AI-enhanced suggestions', 'intertexere' ) }
+				</Button>
+			) }
+		</div>
 	);
 }

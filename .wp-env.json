@@ -1,6 +1,6 @@
 {
   "core": "WordPress/WordPress#7.1",
-  "plugins": [ "." ],
+  "plugins": [ ".", "./tests/e2e/intertexere-e2e-adapter" ],
   "port": 8889,
   "testsPort": 8888,
   "config": {

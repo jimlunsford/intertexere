@@ -44,7 +44,15 @@ final class Admin {
 			<h1><?php echo esc_html__( 'Intertexere', 'intertexere' ); ?></h1>
 
 			<?php if ( isset( $_GET['intertexere-updated'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
-				<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Intertexere settings were saved and a rebuild was queued.', 'intertexere' ); ?></p></div>
+				<div class="notice notice-success is-dismissible"><p>
+					<?php
+					echo esc_html(
+						'ai' === $_GET['intertexere-updated'] // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+							? __( 'AI enhancement preference saved. No content-index or graph rebuild was needed.', 'intertexere' )
+							: __( 'Content eligibility saved and the required rebuilds were queued.', 'intertexere' )
+					);
+					?>
+				</p></div>
 			<?php endif; ?>
 			<?php if ( isset( $_GET['intertexere-rebuild'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
 				<div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'The content-index rebuild was queued.', 'intertexere' ); ?></p></div>
@@ -60,6 +68,7 @@ final class Admin {
 			<p><?php echo esc_html__( 'Intertexere 0.1 indexes published, public, non-password-protected content only.', 'intertexere' ); ?></p>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="intertexere_save_settings">
+				<input type="hidden" name="settings_scope" value="eligibility">
 				<?php wp_nonce_field( 'intertexere_save_settings' ); ?>
 				<fieldset>
 					<legend class="screen-reader-text"><?php echo esc_html__( 'Eligible post types', 'intertexere' ); ?></legend>
@@ -71,6 +80,21 @@ final class Admin {
 					<?php endforeach; ?>
 				</fieldset>
 				<?php submit_button( esc_html__( 'Save eligibility', 'intertexere' ) ); ?>
+			</form>
+
+			<h2><?php echo esc_html__( 'AI enhancement', 'intertexere' ); ?></h2>
+			<p><?php echo esc_html__( 'AI enhancement is optional and disabled by default. Deterministic suggestions remain available without it.', 'intertexere' ); ?></p>
+			<p><?php echo esc_html__( 'When explicitly requested in the editor, bounded unsaved draft excerpts and candidate context may be sent through the provider configured in WordPress. Provider processing and retention are governed by that provider.', 'intertexere' ); ?></p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="intertexere_save_settings">
+				<input type="hidden" name="settings_scope" value="ai">
+				<input type="hidden" name="ai_setting_present" value="1">
+				<?php wp_nonce_field( 'intertexere_save_settings' ); ?>
+				<label>
+					<input type="checkbox" name="enable_ai_enhancement" value="1" <?php checked( ! empty( $settings['enable_ai_enhancement'] ) ); ?>>
+					<?php echo esc_html__( 'Enable explicit AI enhancement in the editor', 'intertexere' ); ?>
+				</label>
+				<?php submit_button( esc_html__( 'Save AI preference', 'intertexere' ) ); ?>
 			</form>
 
 			<h2><?php echo esc_html__( 'Index diagnostics', 'intertexere' ); ?></h2>
@@ -171,22 +195,29 @@ final class Admin {
 	}
 
 	/**
-	 * Save validated eligibility settings and queue a rebuild.
+	 * Save one validated settings group without resetting unrelated values.
 	 */
 	public static function handle_settings(): void {
 		self::authorize( 'intertexere_save_settings' );
 
-		$post_types = isset( $_POST['eligible_post_types'] ) && is_array( $_POST['eligible_post_types'] )
-			? wp_unslash( $_POST['eligible_post_types'] )
-			: array();
+		$scope   = isset( $_POST['settings_scope'] ) && is_string( $_POST['settings_scope'] )
+			? sanitize_key( wp_unslash( $_POST['settings_scope'] ) )
+			: '';
+		$changes = array();
 
-		update_option(
-			Settings::OPTION,
-			Settings::sanitize( array( 'eligible_post_types' => $post_types ) ),
-			false
-		);
+		if ( 'eligibility' === $scope ) {
+			$changes['eligible_post_types'] = isset( $_POST['eligible_post_types'] ) && is_array( $_POST['eligible_post_types'] )
+				? wp_unslash( $_POST['eligible_post_types'] )
+				: array();
+		} elseif ( 'ai' === $scope && isset( $_POST['ai_setting_present'] ) && '1' === (string) $_POST['ai_setting_present'] ) {
+			$changes['enable_ai_enhancement'] = isset( $_POST['enable_ai_enhancement'] ) && '1' === (string) $_POST['enable_ai_enhancement'];
+		} else {
+			wp_die( esc_html__( 'The Intertexere settings request was invalid.', 'intertexere' ), '', array( 'response' => 400 ) );
+		}
 
-		wp_safe_redirect( add_query_arg( 'intertexere-updated', '1', admin_url( 'tools.php?page=intertexere' ) ) );
+		update_option( Settings::OPTION, Settings::merge( $changes ), false );
+
+		wp_safe_redirect( add_query_arg( 'intertexere-updated', $scope, admin_url( 'tools.php?page=intertexere' ) ) );
 		exit;
 	}
 

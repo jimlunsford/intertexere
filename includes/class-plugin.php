@@ -64,7 +64,7 @@ final class Plugin {
 	 * @param mixed $new_value New option value.
 	 */
 	public static function settings_changed( $old_value, $new_value ): void {
-		if ( $old_value !== $new_value ) {
+		if ( Settings::eligibility_signature( $old_value ) !== Settings::eligibility_signature( $new_value ) ) {
 			Indexer::request_rebuild();
 			Link_Graph::request_rebuild();
 		}

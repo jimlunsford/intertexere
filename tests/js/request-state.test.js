@@ -1,5 +1,6 @@
 import {
 	analysisCacheKey,
+	aiCacheKey,
 	createRequestGate,
 	visibleSuggestions,
 } from '../../src/editor/request-state';
@@ -13,6 +14,15 @@ describe( 'asynchronous request state', () => {
 		expect( gate.owns( second ) ).toBe( true );
 		gate.invalidate();
 		expect( gate.owns( second ) ).toBe( false );
+	} );
+
+	test( 'keys AI session cache to analysis, ordered candidates, and contract versions', () => {
+		expect( aiCacheKey( 'analysis', [ 4, 2 ], 1, 3 ) ).toBe(
+			'analysis:4,2:1:3'
+		);
+		expect( aiCacheKey( 'analysis', [ 2, 4 ], 1, 3 ) ).not.toBe(
+			aiCacheKey( 'analysis', [ 4, 2 ], 1, 3 )
+		);
 	} );
 
 	test( 'keys session cache to post, hash, algorithm, and active generations', () => {

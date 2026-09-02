@@ -25,6 +25,15 @@ export function analysisCacheKey( postIdentity, draftHash, response ) {
 	].join( ':' );
 }
 
+export function aiCacheKey( analysisId, candidateIds, contractVersion, promptVersion ) {
+	return [
+		analysisId,
+		candidateIds.join( ',' ),
+		contractVersion,
+		promptVersion,
+	].join( ':' );
+}
+
 export function visibleSuggestions( response, dismissed ) {
 	if ( ! response || ! Array.isArray( response.suggestions ) ) {
 		return [];

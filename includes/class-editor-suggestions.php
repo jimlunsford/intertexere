@@ -444,6 +444,30 @@ final class Editor_Suggestions {
 	}
 
 	/**
+	 * Return validated literal draft units for the bounded AI service.
+	 *
+	 * This is the only server-side bridge from the 0.3 snapshot parser to 0.4.
+	 * It performs no persistence, rendering, shortcode execution, or retrieval.
+	 *
+	 * @param mixed $payload Untrusted draft snapshot.
+	 * @return array<string, mixed>|\WP_Error
+	 */
+	public static function context_for_ai( $payload ) {
+		$validated = self::validate_payload( $payload );
+		if ( is_wp_error( $validated ) ) {
+			return $validated;
+		}
+
+		$parsed = self::parse_units( $validated );
+
+		return array(
+			'validated'  => $validated,
+			'text_units' => $parsed['text_units'],
+			'draft_hash' => self::draft_hash( $validated ),
+		);
+	}
+
+	/**
 	 * Parse validated markup into literal visible text and link identities.
 	 *
 	 * @param array<string, mixed> $validated Validated payload.
