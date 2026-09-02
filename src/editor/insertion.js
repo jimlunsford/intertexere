@@ -62,16 +62,30 @@ function formatFingerprint( format ) {
 	return JSON.stringify( comparableObject( format ) );
 }
 
-function formatsFingerprint( value, includeLinks = true ) {
-	return Array.from( { length: value.text.length }, ( ignored, index ) =>
-		( value.formats[ index ] || [] )
-			.filter( ( format ) => includeLinks || ! isLinkFormat( format ) )
-			.map( formatFingerprint )
-	);
-}
-
 function replacementsFingerprint( value ) {
 	return JSON.stringify( comparableObject( value.replacements || [] ) );
+}
+
+function sameFormats( beforeFormats, afterFormats, includeLinks = true ) {
+	const before = ( beforeFormats || [] ).filter(
+		( format ) => includeLinks || ! isLinkFormat( format )
+	);
+	const after = ( afterFormats || [] ).filter(
+		( format ) => includeLinks || ! isLinkFormat( format )
+	);
+	if ( before.length !== after.length ) {
+		return false;
+	}
+	for ( let index = 0; index < before.length; index += 1 ) {
+		if (
+			before[ index ] !== after[ index ] &&
+			formatFingerprint( before[ index ] ) !==
+				formatFingerprint( after[ index ] )
+		) {
+			return false;
+		}
+	}
+	return true;
 }
 
 export function findExactOccurrence( text, exactText, occurrence ) {
@@ -202,18 +216,24 @@ function linkOverlapState( value, range, currentPermalink = '' ) {
 function verifyAppliedLink( before, after, range, currentPermalink ) {
 	if (
 		before.text !== after.text ||
-		replacementsFingerprint( before ) !==
-			replacementsFingerprint( after ) ||
-		JSON.stringify( formatsFingerprint( before, false ) ) !==
-			JSON.stringify( formatsFingerprint( after, false ) )
+		( before.replacements !== after.replacements &&
+			replacementsFingerprint( before ) !==
+				replacementsFingerprint( after ) )
 	) {
 		return false;
 	}
 
 	for ( let index = 0; index < after.text.length; index += 1 ) {
-		const beforeLinks = linkFormatsAt( before, index ).map(
-			formatFingerprint
-		);
+		if (
+			! sameFormats(
+				before.formats?.[ index ],
+				after.formats?.[ index ],
+				false
+			)
+		) {
+			return false;
+		}
+		const beforeLinks = linkFormatsAt( before, index );
 		const afterLinks = linkFormatsAt( after, index );
 		if ( index >= range.start && index < range.end ) {
 			if (
@@ -222,10 +242,7 @@ function verifyAppliedLink( before, after, range, currentPermalink ) {
 			) {
 				return false;
 			}
-		} else if (
-			JSON.stringify( beforeLinks ) !==
-			JSON.stringify( afterLinks.map( formatFingerprint ) )
-		) {
+		} else if ( ! sameFormats( beforeLinks, afterLinks ) ) {
 			return false;
 		}
 	}

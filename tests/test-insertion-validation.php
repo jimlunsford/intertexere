@@ -365,7 +365,10 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		return array(
 			'post_id'    => $this->source_id,
 			'post_type'  => 'post',
-			'title'      => 'Unsaved insertion source',
+			// Candidate retrieval uses the draft's first bounded phrase. Keeping
+			// that phrase exact makes this an insertion test, not a search-recall
+			// fixture whose authority depends on database full-text behavior.
+			'title'      => 'Insertion Target Alpha',
 			'taxonomies' => array(),
 			'units'      => array(
 				array(

@@ -182,6 +182,20 @@ describe( 'RichText link mutation', () => {
 		);
 	} );
 
+	test( 'preserves an existing non-overlapping link exactly', () => {
+		const html =
+			'<a href="https://example.test/existing/">Existing</a> then Exact';
+		const result = applyValidatedLink(
+			block( 'core/paragraph', html ),
+			evidence( 'Exact' ),
+			'https://example.test/current/'
+		);
+		expect( result.status ).toBe( 'ready' );
+		expect( result.nextContent ).toBe(
+			'<a href="https://example.test/existing/">Existing</a> then <a href="https://example.test/current/">Exact</a>'
+		);
+	} );
+
 	test( 'preserves entities, punctuation, Unicode, and emoji text', () => {
 		const html = 'Before &amp; 🙂 “Exact” 𐐷 after.';
 		const result = applyValidatedLink(
