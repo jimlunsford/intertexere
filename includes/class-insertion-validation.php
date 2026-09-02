@@ -78,8 +78,7 @@ final class Insertion_Validation {
 			$request['validated_draft']['base_url'],
 			$request['validated_draft']['post_id'],
 			$request['target_post_id'],
-			$target_before['canonical_permalink'],
-			$request['anchor']['exact_text']
+			$target_before['canonical_permalink']
 		);
 		if ( 'already-linked' === $range_state ) {
 			return self::error( 'intertexere_insertion_already_linked', 'This exact phrase already links to the current target.', 409 );
@@ -121,6 +120,12 @@ final class Insertion_Validation {
 		$target_after = self::target_state( $request['target_post_id'] );
 		if ( is_wp_error( $target_after ) || $target_before !== $target_after ) {
 			return self::stale( 'The target changed during insertion validation.' );
+		}
+		if ( ! self::current_generations_match( $analysis ) ) {
+			return self::stale( 'The active deterministic data changed during insertion validation.' );
+		}
+		if ( ! self::current_source_authority_matches( $request['validated_draft'] ) ) {
+			return self::stale( 'The source authority changed during insertion validation.' );
 		}
 
 		$analysis_metrics = Editor_Suggestions::last_metrics();
@@ -332,12 +337,51 @@ final class Insertion_Validation {
 	}
 
 	private static function draft_has_target( array $links, array $draft, int $target_post_id, string $target_permalink ): bool {
+		$canonical = Link_Resolver::normalize_reference( $target_permalink, $draft['base_url'] );
+		$old_paths = self::target_old_slug_paths( $target_post_id, $target_permalink );
+		$seen      = array();
 		foreach ( $links as $href ) {
-			if ( self::reference_targets_post( $href, $draft['base_url'], $draft['post_id'], $target_post_id, $target_permalink ) ) {
+			$normalized = Link_Resolver::normalize_reference( $href, $draft['base_url'] );
+			if ( null === $normalized || ! Link_Resolver::is_internal_url( $normalized ) || isset( $seen[ $normalized ] ) ) {
+				continue;
+			}
+			$seen[ $normalized ] = true;
+			$matches_old_path = in_array( untrailingslashit( (string) wp_parse_url( $normalized, PHP_URL_PATH ) ), $old_paths, true );
+			if ( ( null !== $canonical && hash_equals( $canonical, $normalized ) )
+				|| self::query_reference_targets_post( $normalized, $target_post_id )
+				|| ( $matches_old_path && self::reference_targets_post( $href, $draft['base_url'], $draft['post_id'], $target_post_id, $target_permalink ) ) ) {
 				return true;
 			}
 		}
 		return false;
+	}
+
+	/** @return string[] */
+	private static function target_old_slug_paths( int $target_post_id, string $target_permalink ): array {
+		$post = get_post( $target_post_id );
+		if ( ! $post instanceof \WP_Post || is_post_type_hierarchical( $post->post_type ) ) {
+			return array();
+		}
+
+		$current_path = untrailingslashit( (string) wp_parse_url( $target_permalink, PHP_URL_PATH ) );
+		$current_slug = basename( $current_path );
+		if ( '' === $current_slug ) {
+			return array();
+		}
+
+		$directory = substr( $current_path, 0, -strlen( $current_slug ) );
+		$paths     = array();
+		foreach ( get_post_meta( $target_post_id, '_wp_old_slug', false ) as $slug ) {
+			if ( is_string( $slug ) && '' !== $slug ) {
+				$paths[] = untrailingslashit( $directory . rawurlencode( $slug ) );
+			}
+		}
+		return array_values( array_unique( $paths ) );
+	}
+
+	private static function query_reference_targets_post( string $url, int $target_post_id ): bool {
+		return 1 === preg_match( '#[?&](?:p|page_id|attachment_id)=(\d+)(?:&|$)#', $url, $matches )
+			&& (int) $matches[1] === $target_post_id;
 	}
 
 	private static function matches_deterministic_location( array $suggestion, array $anchor, int $anchor_start ): bool {
@@ -349,7 +393,7 @@ final class Insertion_Validation {
 			&& ( $location['start'] ?? null ) === $anchor_start;
 	}
 
-	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink, string $exact_text ): string {
+	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink ): string {
 		if ( ! preg_match_all( '#<a\b[^>]*>(.*?)</a>#is', $html, $matches, PREG_OFFSET_CAPTURE ) ) {
 			return 'clear';
 		}
@@ -370,7 +414,7 @@ final class Insertion_Validation {
 
 			$processor = new \WP_HTML_Tag_Processor( $match[0] );
 			$href      = $processor->next_tag( array( 'tag_name' => 'A' ) ) ? $processor->get_attribute( 'href' ) : null;
-			$exact_range = ( $start === $link_start && $end === $link_end ) || $link_text === $exact_text;
+			$exact_range = $start === $link_start && $end === $link_end;
 			if ( $exact_range && is_string( $href )
 				&& self::reference_targets_post( $href, $base_url, $source_post_id, $target_post_id, $target_permalink ) ) {
 				return 'already-linked';
@@ -440,6 +484,31 @@ final class Insertion_Validation {
 		}
 		$object = get_post_type_object( $draft['post_type'] );
 		return $object && current_user_can( $object->cap->edit_posts );
+	}
+
+	private static function current_generations_match( array $analysis ): bool {
+		return isset( $analysis['index_generation'], $analysis['graph_generation'] )
+			&& is_string( $analysis['index_generation'] )
+			&& is_string( $analysis['graph_generation'] )
+			&& hash_equals( $analysis['index_generation'], (string) get_option( Schema::GENERATION_OPTION, '' ) )
+			&& hash_equals( $analysis['graph_generation'], (string) get_option( Schema::GRAPH_GENERATION_OPTION, '' ) );
+	}
+
+	private static function current_source_authority_matches( array $draft ): bool {
+		if ( ! Editor_Suggestions::is_supported_source_type( $draft['post_type'] ) ) {
+			return false;
+		}
+		if ( 0 === $draft['post_id'] ) {
+			$object = get_post_type_object( $draft['post_type'] );
+			return $object && current_user_can( $object->cap->edit_posts );
+		}
+
+		$post = get_post( $draft['post_id'] );
+		return $post instanceof \WP_Post
+			&& (int) $post->ID === $draft['post_id']
+			&& (string) $post->post_type === $draft['post_type']
+			&& Editor_Suggestions::is_supported_source_type( $post->post_type )
+			&& current_user_can( 'edit_post', $post->ID );
 	}
 
 	private static function has_exact_keys( array $value, array $keys ): bool {

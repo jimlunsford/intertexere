@@ -80,6 +80,90 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertLessThan( 250, $metrics['insertion_ms'] );
 	}
 
+	public function test_active_generations_must_remain_the_analyzed_generations(): void {
+		$this->assertIsArray( Insertion_Validation::validate( $this->request_payload() ) );
+
+		$races = array(
+			'index' => Schema::GENERATION_OPTION,
+			'graph' => Schema::GRAPH_GENERATION_OPTION,
+		);
+		foreach ( $races as $label => $option ) {
+			$original_generation = get_option( $option );
+			$before_target = get_post( $this->target_id );
+			$before_source = get_post_field( 'post_content', $this->source_id );
+			$next_generation = 'race-' . $label . '-' . wp_generate_uuid4();
+			add_action(
+				'intertexere_insertion_validation_before_final_target',
+				static function () use ( $option, $next_generation ): void {
+					update_option( $option, $next_generation, false );
+				},
+				10,
+				0
+			);
+			$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $this->request_payload() ), $label );
+			$this->assertSame( $next_generation, get_option( $option ), $label );
+			$this->assertEquals( $before_target, get_post( $this->target_id ), $label );
+			$this->assertSame( $before_source, get_post_field( 'post_content', $this->source_id ), $label );
+			remove_all_actions( 'intertexere_insertion_validation_before_final_target' );
+			update_option( $option, $original_generation, false );
+			$this->refresh_analysis();
+		}
+	}
+
+	public function test_source_authority_is_revalidated_after_analysis(): void {
+		global $wpdb;
+
+		$deny_source = function ( array $caps, string $cap, int $user_id, array $args ): array {
+			if ( 'edit_post' === $cap && isset( $args[0] ) && (int) $args[0] === $this->source_id ) {
+				return array( 'do_not_allow' );
+			}
+			return $caps;
+		};
+		add_action(
+			'intertexere_insertion_validation_before_final_target',
+			static function () use ( $deny_source ): void {
+				add_filter( 'map_meta_cap', $deny_source, 10, 4 );
+			},
+			10,
+			0
+		);
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $this->request_payload() ), 'capability loss' );
+		remove_filter( 'map_meta_cap', $deny_source, 10 );
+		remove_all_actions( 'intertexere_insertion_validation_before_final_target' );
+
+		add_action(
+			'intertexere_insertion_validation_before_final_target',
+			function () use ( $wpdb ): void {
+				$wpdb->delete( $wpdb->posts, array( 'ID' => $this->source_id ), array( '%d' ) );
+				clean_post_cache( $this->source_id );
+			},
+			10,
+			0
+		);
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $this->request_payload() ), 'source deletion' );
+		remove_all_actions( 'intertexere_insertion_validation_before_final_target' );
+
+		$this->source_id = self::factory()->post->create(
+			array(
+				'post_status' => 'draft',
+				'post_author' => $this->administrator_id,
+				'post_type'   => 'post',
+			)
+		);
+		$this->draft['post_id'] = $this->source_id;
+		$this->refresh_analysis();
+		add_action(
+			'intertexere_insertion_validation_before_final_target',
+			function () use ( $wpdb ): void {
+				$wpdb->update( $wpdb->posts, array( 'post_type' => 'page' ), array( 'ID' => $this->source_id ), array( '%s' ), array( '%d' ) );
+				clean_post_cache( $this->source_id );
+			},
+			10,
+			0
+		);
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $this->request_payload() ), 'source post type' );
+	}
+
 	public function test_established_125_post_fixture_stays_within_validation_budgets(): void {
 		for ( $index = 0; $index < 124; ++$index ) {
 			$post_id = self::factory()->post->create(
@@ -97,6 +181,24 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertIsArray( $result );
 		$metrics = Insertion_Validation::last_metrics();
 		fwrite( STDOUT, sprintf( "\n0.5 125-post fixture: %d queries total, %d insertion-specific queries, %.3f ms total, %.3f ms insertion-specific\n", $metrics['total_query_count'], $metrics['insertion_query_count'], $metrics['total_ms'], $metrics['insertion_ms'] ) );
+		$this->assertLessThanOrEqual( 16, $metrics['total_query_count'] );
+		$this->assertLessThanOrEqual( 4, $metrics['insertion_query_count'] );
+		$this->assertLessThan( 3250, $metrics['total_ms'] );
+		$this->assertLessThan( 250, $metrics['insertion_ms'] );
+	}
+
+	public function test_200_link_draft_stays_within_duplicate_resolution_budgets(): void {
+		$other_ids = self::factory()->post->create_many( 20, array( 'post_status' => 'publish' ) );
+		$links = array();
+		for ( $index = 0; $index < Insertion_Validation::MAX_DRAFT_LINKS; ++$index ) {
+			$links[] = get_permalink( $other_ids[ $index % count( $other_ids ) ] );
+		}
+		$request = $this->request_payload();
+		$request['draft_links'] = $links;
+		$result = Insertion_Validation::validate( $request );
+		$this->assertIsArray( $result );
+		$metrics = Insertion_Validation::last_metrics();
+		fwrite( STDOUT, sprintf( "\n0.5 200-link fixture: %d links, %d queries total, %d insertion-specific queries, %.3f ms total, %.3f ms insertion-specific\n", count( $links ), $metrics['total_query_count'], $metrics['insertion_query_count'], $metrics['total_ms'], $metrics['insertion_ms'] ) );
 		$this->assertLessThanOrEqual( 16, $metrics['total_query_count'] );
 		$this->assertLessThanOrEqual( 4, $metrics['insertion_query_count'] );
 		$this->assertLessThan( 3250, $metrics['total_ms'] );
@@ -258,6 +360,47 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		);
 		$request = $this->request_payload();
 		$this->assertError( 'intertexere_insertion_link_overlap', Insertion_Validation::validate( $request ) );
+	}
+
+	public function test_partial_and_multi_link_intersections_are_always_overlap(): void {
+		$permalink = get_permalink( $this->target_id );
+		wp_update_post(
+			array(
+				'ID'           => $this->target_id,
+				'post_title'   => 'Alpha Alpha',
+				'post_content' => '<p>Alpha Alpha supporting context.</p>',
+			)
+		);
+		Indexer::refresh_post( $this->target_id );
+
+		$partial_cases = array(
+			'same target'  => $permalink,
+			'other target' => 'https://example.org/other',
+		);
+		foreach ( $partial_cases as $label => $href ) {
+			$this->draft = $this->draft_with_markup(
+				'<!-- wp:paragraph --><p>Alpha <a href="' . esc_url( $href ) . '">Alpha Alpha</a>.</p><!-- /wp:paragraph -->'
+			);
+			$this->draft['title'] = 'Alpha Alpha';
+			$this->refresh_analysis();
+			$request = $this->request_payload();
+			$request['anchor']['exact_text'] = 'Alpha Alpha';
+			$this->assertError( 'intertexere_insertion_link_overlap', Insertion_Validation::validate( $request ), $label );
+		}
+
+		$this->restore_target();
+		Indexer::refresh_post( $this->target_id );
+		$this->draft = $this->draft_with_markup(
+			'<!-- wp:paragraph --><p><a href="https://example.org/one">Insertion</a> Target <a href="https://example.org/two">Alpha</a>.</p><!-- /wp:paragraph -->'
+		);
+		$this->refresh_analysis();
+		$this->assertError( 'intertexere_insertion_link_overlap', Insertion_Validation::validate( $this->request_payload() ), 'spanning links' );
+
+		$this->draft = $this->draft_with_markup(
+			'<!-- wp:paragraph --><p><a href="https://example.org/other">Before</a> Insertion Target Alpha after.</p><!-- /wp:paragraph -->'
+		);
+		$this->refresh_analysis();
+		$this->assertIsArray( Insertion_Validation::validate( $this->request_payload() ), 'clear non-overlapping range' );
 	}
 
 	public function test_ai_anchor_must_map_to_server_held_current_unit(): void {
