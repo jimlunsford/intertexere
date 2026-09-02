@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1 through 0.4 are complete.
+Milestones 0.1 through 0.4 are complete. Milestone 0.5 is planned and not implemented.
 
 ## Product Identity
 
@@ -155,6 +155,10 @@ Intertexere must not silently rewrite prose.
 - Background analysis must never change published or draft content.
 - Future automatic or bulk mutation requires a separate explicit product decision.
 
+The reviewed 0.5 plan adds a dedicated read-only insertion-validation service followed by one local Block Editor state update. The server reruns deterministic authority, resolves current target eligibility and permalink, rejects draft-wide duplicate target identity, and returns request-scoped evidence without writing content. The client then rechecks request ownership, post identity, block identity, direct RichText content, exact occurrence, and link boundaries before using the Core `core/link` format and `updateBlockAttributes()`.
+
+The initial insertion allowlist is `core/paragraph`, `core/heading`, and `core/list-item`, each through its direct `content` attribute. Other analyzable locations remain read-only until their attribute paths and runtime behavior receive separate proof. The complete mutation and failure contract is in [Explicit Link Insertion](LINK-INSERTION.md), with completion requirements in [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
+
 ## Privacy and External Requests
 
 Milestone 0.3 makes no external requests and does not persist unsaved draft text in Intertexere tables, options, or transients.
@@ -197,7 +201,7 @@ Intertexere follows normal WordPress security boundaries:
 3. Internal-link graph, complete in 0.2
 4. Read-only deterministic editor suggestions, complete in 0.3
 5. AI Client and Connectors integration, complete in 0.4
-6. Explicit one-click link insertion, planned for 0.5
+6. Explicit one-click link insertion, fully planned and not implemented in 0.5
 7. Site-level link audit and maintenance tools, planned for 0.6
 
 Each stage must remain usable and testable without pulling later behavior forward.

@@ -144,6 +144,8 @@ Acceptance direction:
 
 ## 0.5 Explicit Link Insertion
 
+Status: planned and not implemented. See [Explicit Link Insertion](LINK-INSERTION.md) and [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
+
 Goal: allow the editor to approve a suggestion and insert a normal WordPress link safely.
 
 Scope:
@@ -157,6 +159,19 @@ Scope:
 - stale suggestion handling
 - undo-compatible editor behavior where supported
 
+Architecture direction:
+
+- dedicated read-only server validation immediately before a local editor mutation
+- current deterministic candidate membership remains mandatory; AI grants no insertion authority
+- current canonical target permalink resolved by WordPress at validation time
+- exact anchor text and zero-based occurrence recomputed in the current RichText value
+- initial insertion allowlist limited to paragraph, heading, and list-item direct `content` attributes
+- one native `core/link` RichText format applied through `updateBlockAttributes()`
+- final client request-ownership and editor-state check after server validation
+- one destination link per resolved target post ID in the current draft
+- no server-side post mutation, automatic save, automatic publish, or special graph write
+- no persistent insertion token or data, no prompt expansion, and schema remains version 2
+
 Acceptance direction:
 
 - no link is inserted without explicit user action
@@ -164,6 +179,8 @@ Acceptance direction:
 - inserted links remain functional with Intertexere deactivated
 - malformed or stale suggestions fail safely
 - published content is not changed by background processing
+- normal Undo restores the exact pre-insertion block state
+- unsupported or unproved locations remain read-only and fail safely
 
 ## 0.6 Site Link Audit
 
