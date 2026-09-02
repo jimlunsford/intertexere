@@ -379,12 +379,14 @@ final class Insertion_Validation {
 		if ( null === $resolved ) {
 			return false;
 		}
+		$canonical = Link_Resolver::normalize_reference( $target_permalink, $base_url );
+		if ( null !== $canonical && hash_equals( $canonical, $resolved['normalized_url'] ) ) {
+			return true;
+		}
 		if ( null !== $resolved['target_post_id'] ) {
 			return (int) $resolved['target_post_id'] === $target_post_id;
 		}
-
-		$canonical = Link_Resolver::normalize_reference( $target_permalink, $base_url );
-		return null !== $canonical && hash_equals( $canonical, $resolved['normalized_url'] );
+		return false;
 	}
 
 	private static function direct_content_html( string $block_name, string $inner_html ): ?string {
