@@ -85,7 +85,6 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 
 	test( 'ignores a late older response and renders recoverable server states', async ( {
 		admin,
-		editor,
 		page,
 	} ) => {
 		await admin.createNewPost( {
@@ -96,22 +95,33 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await openSidebar( page );
 
 		let first = true;
+		let markFirstStarted;
+		let releaseFirst;
+		const firstStarted = new Promise( ( resolve ) => {
+			markFirstStarted = resolve;
+		} );
+		const firstReleased = new Promise( ( resolve ) => {
+			releaseFirst = resolve;
+		} );
 		await page.route(
 			'**/wp-json/intertexere/v1/editor-suggestions',
 			async ( route ) => {
 				if ( first ) {
 					first = false;
-					await new Promise( ( resolve ) =>
-						setTimeout( resolve, 500 )
-					);
-					await route.fulfill( {
-						status: 500,
-						contentType: 'application/json',
-						body: JSON.stringify( {
-							code: 'old',
-							message: 'Old response',
-						} ),
-					} );
+					markFirstStarted();
+					await firstReleased;
+					try {
+						await route.fulfill( {
+							status: 500,
+							contentType: 'application/json',
+							body: JSON.stringify( {
+								code: 'old',
+								message: 'Old response',
+							} ),
+						} );
+					} catch {
+						// The explicit second request is expected to abort this route.
+					}
 					return;
 				}
 				await route.fulfill( {
@@ -126,12 +136,15 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		);
 
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
-		await editor.setContent(
-			unsavedContent.replace( 'guide', 'fresh guide' )
-		);
+		await firstStarted;
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
-		await expect( page.getByText( 'Index unavailable' ) ).toBeVisible();
-		await page.waitForTimeout( 600 );
+		await expect(
+			page
+				.getByLabel( 'Editor settings' )
+				.getByText( 'Index unavailable' )
+		).toBeVisible();
+		releaseFirst();
+		await page.waitForTimeout( 100 );
 		await expect( page.getByText( 'Old response' ) ).toHaveCount( 0 );
 	} );
 
