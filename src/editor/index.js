@@ -423,7 +423,7 @@ export function EditorSuggestionsSidebar() {
 					configured={ Boolean(
 						settings.ai?.enabled && settings.ai?.available
 					) }
-					status={ aiState.status }
+					status={ stale ? 'stale' : aiState.status }
 					error={ aiState.error }
 					onEnhance={ enhanceWithAI }
 					onToggleMode={ () =>

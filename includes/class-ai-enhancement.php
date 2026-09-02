@@ -561,7 +561,12 @@ final class AI_Enhancement {
 	}
 
 	private static function length( string $value ): int {
-		return function_exists( 'mb_strlen' ) ? mb_strlen( $value, 'UTF-8' ) : strlen( $value );
+		if ( function_exists( 'mb_strlen' ) ) {
+			return mb_strlen( $value, 'UTF-8' );
+		}
+
+		$length = preg_match_all( '/./us', $value, $matches );
+		return false === $length ? strlen( $value ) : $length;
 	}
 
 	private static function has_exact_keys( array $value, array $keys ): bool {
