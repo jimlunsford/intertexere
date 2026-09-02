@@ -363,7 +363,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		page,
 	} ) => {
 		await admin.createNewPost( {
-			title: 'AI preview source',
+			title: candidateTitle,
 			content: unsavedContent,
 			showWelcomeGuide: false,
 		} );
