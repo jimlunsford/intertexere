@@ -29,7 +29,7 @@ Specific API usage will be verified against current official WordPress developer
 
 ## Development Status
 
-Milestones 0.1 and 0.2 are complete. Milestone 0.3 is planned and not implemented.
+Milestones 0.1, 0.2, and 0.3 are complete. Milestone 0.4 is planned and not implemented.
 
 The initial roadmap is:
 

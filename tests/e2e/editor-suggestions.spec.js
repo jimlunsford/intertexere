@@ -1,0 +1,310 @@
+const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' );
+
+const candidateTitle = 'Deterministic WordPress Performance';
+const candidateContent =
+	'<!-- wp:paragraph --><p>Deterministic WordPress performance notes for local editorial analysis.</p><!-- /wp:paragraph -->';
+const unsavedContent =
+	'<!-- wp:paragraph --><p>Our deterministic WordPress performance guide explains predictable local analysis.</p><!-- /wp:paragraph -->';
+
+async function openSidebar( page ) {
+	await page.evaluate( () => {
+		window.wp.data
+			.dispatch( 'core/edit-post' )
+			.openGeneralSidebar(
+				'intertexere-editor-suggestions/intertexere-editor-suggestions'
+			);
+	} );
+	await expect(
+		page.getByRole( 'button', { name: 'Analyze draft' } )
+	).toBeVisible();
+}
+
+test.describe( 'Intertexere read-only editor suggestions', () => {
+	test.beforeAll( async ( { requestUtils } ) => {
+		await requestUtils.activatePlugin( 'intertexere' );
+	} );
+
+	test.beforeEach( async ( { requestUtils } ) => {
+		await requestUtils.deleteAllPosts();
+		await requestUtils.createPost( {
+			title: candidateTitle,
+			content: candidateContent,
+			status: 'publish',
+			date_gmt: new Date().toISOString().replace( /\.\d{3}Z$/, '' ),
+		} );
+	} );
+
+	test( 'uses unsaved iframe-editor state only after a manual trigger and marks it stale', async ( {
+		admin,
+		editor,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+
+		let analysisRequests = 0;
+		page.on( 'request', ( request ) => {
+			if (
+				request.url().includes( '/intertexere/v1/editor-suggestions' )
+			) {
+				analysisRequests += 1;
+			}
+		} );
+
+		await openSidebar( page );
+		expect( analysisRequests ).toBe( 0 );
+		await editor.setContent( unsavedContent.replace( 'guide', 'article' ) );
+		await expect.poll( () => analysisRequests ).toBe( 0 );
+
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+		expect( analysisRequests ).toBe( 1 );
+		expect( await page.getByText( 'Insert Link' ).count() ).toBe( 0 );
+
+		await editor.setContent(
+			unsavedContent.replace( 'guide', 'changed guide' )
+		);
+		await expect(
+			page
+				.getByLabel( 'Editor settings' )
+				.getByText( /The draft changed/ )
+		).toBeVisible();
+		await expect.poll( () => analysisRequests ).toBe( 1 );
+
+		await page.getByRole( 'button', { name: 'Dismiss' } ).click();
+		await expect( page.getByText( /No current suggestion/ ) ).toBeVisible();
+	} );
+
+	test( 'accepts line-separator Unicode without a client-server draft mismatch', async ( {
+		admin,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent.replace(
+				'guide explains',
+				'guide\u2028explains\u2029'
+			),
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+		await expect(
+			page.getByText(
+				'Draft analysis returned for a different editor state.'
+			)
+		).toHaveCount( 0 );
+	} );
+
+	test( 'ignores a late older response and renders recoverable server states', async ( {
+		admin,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+
+		await page.evaluate( () => {
+			const originalFetch = window.fetch.bind( window );
+			let analysisCalls = 0;
+			window.fetch = ( resource, options ) => {
+				const url =
+					typeof resource === 'string' ? resource : resource.url;
+				if ( ! url.includes( '/intertexere/v1/editor-suggestions' ) ) {
+					return originalFetch( resource, options );
+				}
+
+				analysisCalls += 1;
+				if ( analysisCalls === 1 ) {
+					return new Promise( ( resolve ) => {
+						window.__intertexereReleaseOldResponse = () =>
+							resolve(
+								new Response(
+									JSON.stringify( {
+										code: 'old',
+										message: 'Old response',
+									} ),
+									{
+										status: 500,
+										headers: {
+											'Content-Type': 'application/json',
+										},
+									}
+								)
+							);
+					} );
+				}
+
+				return Promise.resolve(
+					new Response(
+						JSON.stringify( {
+							code: 'intertexere_index_unavailable',
+							message: 'Index unavailable',
+						} ),
+						{
+							status: 503,
+							headers: { 'Content-Type': 'application/json' },
+						}
+					)
+				);
+			};
+		} );
+
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect
+			.poll( () =>
+				page.evaluate(
+					() =>
+						typeof window.__intertexereReleaseOldResponse ===
+						'function'
+				)
+			)
+			.toBe( true );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page
+				.getByLabel( 'Editor settings' )
+				.getByText( 'Index unavailable' )
+		).toBeVisible();
+		await page.evaluate( () => window.__intertexereReleaseOldResponse() );
+		await page.waitForTimeout( 100 );
+		await expect( page.getByText( 'Old response' ) ).toHaveCount( 0 );
+	} );
+
+	test( 'does not persist unsaved analysis content and leaves normal save behavior intact', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		const saved = await requestUtils.createPost( {
+			title: 'Saved source',
+			content:
+				'<!-- wp:paragraph --><p>Original database content.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+			date_gmt: new Date().toISOString().replace( /\.\d{3}Z$/, '' ),
+		} );
+		await admin.editPost( saved.id );
+		await editor.setContent( unsavedContent );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+
+		const beforeSave = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ saved.id }?context=edit`,
+		} );
+		expect( beforeSave.content.raw ).toContain(
+			'Original database content.'
+		);
+		expect( beforeSave.content.raw ).not.toContain(
+			'predictable local analysis'
+		);
+
+		await editor.saveDraft();
+		const afterSave = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ saved.id }?context=edit`,
+		} );
+		expect( afterSave.content.raw ).toContain(
+			'predictable local analysis'
+		);
+	} );
+
+	test( 'removes the UI when disabled while ordinary editing still saves', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.deactivatePlugin( 'intertexere' );
+		try {
+			await admin.createNewPost( {
+				title: 'Plugin disabled editing',
+				content:
+					'<!-- wp:paragraph --><p>Ordinary editing.</p><!-- /wp:paragraph -->',
+				showWelcomeGuide: false,
+			} );
+			expect( await page.getByText( 'Analyze draft' ).count() ).toBe( 0 );
+			await editor.setContent(
+				'<!-- wp:paragraph --><p>Ordinary editing still works.</p><!-- /wp:paragraph -->'
+			);
+			await editor.saveDraft();
+			await expect(
+				page
+					.getByTestId( 'snackbar' )
+					.filter( { hasText: 'Draft saved.' } )
+			).toBeVisible();
+		} finally {
+			await requestUtils.activatePlugin( 'intertexere' );
+		}
+	} );
+
+	test( 'clears session results and does not analyze automatically after post navigation', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		const first = await requestUtils.createPost( {
+			title: 'First editor source',
+			content: unsavedContent,
+			status: 'draft',
+		} );
+		const second = await requestUtils.createPost( {
+			title: 'Second editor source',
+			content:
+				'<!-- wp:paragraph --><p>Unrelated second draft content.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+		} );
+		let analysisRequests = 0;
+		page.on( 'request', ( request ) => {
+			if (
+				request.url().includes( '/intertexere/v1/editor-suggestions' )
+			) {
+				analysisRequests += 1;
+			}
+		} );
+
+		await admin.editPost( first.id );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+		await expect.poll( () => analysisRequests ).toBe( 1 );
+
+		await admin.editPost( second.id );
+		await openSidebar( page );
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toHaveCount( 0 );
+		await page.waitForTimeout( 100 );
+		expect( analysisRequests ).toBe( 1 );
+	} );
+} );

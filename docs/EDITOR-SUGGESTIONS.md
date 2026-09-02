@@ -2,7 +2,7 @@
 
 ## Status
 
-This document is the architecture contract for milestone 0.3. Milestone 0.3 is planned and not implemented.
+This document is the architecture and implementation contract for milestone 0.3. Milestone 0.3 is implemented.
 
 ## Purpose and boundaries
 
@@ -50,7 +50,7 @@ The initial allowlist covers static text that a reader can see and that can be l
 - table cell text, with locations confined to one cell;
 - literal captions from image, gallery child image, audio, and video blocks.
 
-Normal non-controller inner blocks are traversed in editor order. Container text is not counted again when its children are analyzed.
+Traversal is affirmative rather than based on a denylist. Only the separately reviewed Core containers `core/group`, `core/columns`, `core/column`, `core/cover`, `core/media-text`, `core/list`, `core/quote`, and `core/gallery` expose their saved inner blocks in editor order. Container text is not counted again when its children are analyzed. Every other parent is opaque, including unknown Core blocks and custom blocks, unless a later reviewed contract explicitly adds it to this allowlist.
 
 ### Excluded content
 
@@ -77,7 +77,7 @@ The server computes, and the client independently tracks, a versioned SHA-256 dr
 - sorted selected taxonomy IDs by taxonomy;
 - ordered supported analysis units with client ID, block name, and submitted markup.
 
-Object keys and taxonomy IDs are sorted before encoding; block and unit order is preserved. Unsupported block data is not included. The server returns its computed hash and does not trust a client-supplied hash.
+Object keys and taxonomy IDs are sorted before encoding; block and unit order is preserved. Unsupported block data is not included. The hash input is the UTF-8 bytes of the exact ECMAScript `JSON.stringify()` representation: slashes and Unicode are unescaped, U+2028 and U+2029 remain literal UTF-8 characters, JSON syntax characters and controls use normal JSON escapes, the taxonomy map remains an object even when empty, and units remain an ordered array. PHP uses the corresponding JSON flags and structure, and both runtimes must reproduce the shared canonical fixture. The server returns its computed hash and does not trust a client-supplied hash.
 
 An analysis ID combines the draft hash, active content-index generation, active graph generation, and deterministic algorithm version. A result is stale if the current snapshot hash differs, the editor navigates to another post, or the client receives a newer analysis. Stale cards remain visibly marked until refreshed or cleared and cannot acquire a content-changing action in 0.3.
 
@@ -207,17 +207,20 @@ The REST route requires:
 - an allowed, REST-visible Block Editor post type;
 - strict object schemas with unknown fields rejected;
 - integer post IDs, a matching post type, bounded strings, valid block names, and valid taxonomy IDs;
-- a 256 KiB encoded request limit, at most 500 analysis units, and at most 16 KiB per unit;
+- a 256 KiB encoded request limit measured from the actual raw POST body before JSON parsing, at most 500 analysis units, and at most 16 KiB per unit;
 - current eligibility checks for every returned target;
 - standard `WP_Error` responses with non-sensitive messages;
 - escaped text rendering in React and validated current permalinks for the View action.
 
 The endpoint does not save a post, update metadata, write graph or index rows, execute blocks, or call an external service. POST is used only to keep an analysis payload out of the request URL.
 
+`Content-Length` is not trusted as the transport limit because it is advisory. A priority-5 `rest_pre_dispatch` filter, registered during plugin boot and scoped exactly to `POST /intertexere/v1/editor-suggestions`, measures the body stored by `WP_REST_Request`. WordPress Core applies this filter before route matching and before `WP_REST_Request::has_valid_params()` calls `parse_json_params()`. The filter returns the existing 413 error when the body exceeds 262,144 bytes, so Core never parses a transport-rejected body. Permission-callback, endpoint-callback, decoded-payload, unit-count, and per-unit checks remain in place as defense in depth. Unrelated REST routes retain normal Core dispatch and JSON-validation behavior.
+
 ## Performance and caching
 
 - No request runs on editor load or every keystroke.
 - The client keeps only a per-editor-session in-memory cache keyed by draft hash, post identity, algorithm version, and the active generations returned by the server.
+- An explicit Analyze or Refresh always reaches the server before results are treated as current. A cached generation identifier cannot prove that incremental index data, graph data, target eligibility, or current target metadata stayed unchanged, so the session cache never bypasses explicit revalidation.
 - The initial server implementation adds no persistent draft cache. A request-local object cache may deduplicate reads, but unsaved draft text is not written to options, transients, index rows, or graph rows.
 - Payload, token, query, candidate, scoring, and result counts are bounded as described above.
 - Only candidate IDs selected by bounded retrieval are loaded from the active content-index generation.
@@ -248,3 +251,9 @@ There is no Insert Link action. Session dismissals are keyed by analysis ID and 
 ## Known planning boundary
 
 Core WordPress search is intentionally used as the initial bounded lexical-retrieval adapter because schema version 2 has no inverted text index. The 0.3 implementation must measure the exact query plan and editor latency with a large fixture. A new persistent retrieval table, FULLTEXT index, external search dependency, or whole-index synchronous scan is not authorized by this plan. If the defined bounds cannot meet acceptance criteria, that is an architecture review point rather than permission to change schema silently.
+
+## Implemented build and verification boundary
+
+The 0.3 editor source is built with Node.js 22.13.0 and exact development-package versions recorded in `package.json` and `package-lock.json`. The committed production bundle is generated by `@wordpress/scripts` and includes its WordPress dependency manifest plus left-to-right and right-to-left styles.
+
+The implementation retains schema version 2. It adds no migration, suggestion table, draft table, dismissal table, transient cache, or persistent retrieval store. PHP integration tests enforce the 256 KiB payload, 500-unit, 16 KiB unit, 64-term, 8-phrase, 100-candidate, 10-result, and score-25 boundaries. The large-fixture test records request query count and elapsed time and fails if the request exceeds 12 database queries or 3 seconds in the WordPress test environment.

@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1 and 0.2 are complete. Milestone 0.3 is planned and not implemented.
+Milestones 0.1, 0.2, and 0.3 are complete. Milestone 0.4 is planned and not implemented.
 
 ## Product Identity
 
@@ -187,7 +187,7 @@ Intertexere follows normal WordPress security boundaries:
 1. Plugin foundation and compatibility checks, complete in 0.1
 2. Content indexing, complete in 0.1
 3. Internal-link graph, complete in 0.2
-4. Read-only deterministic editor suggestions, planned for 0.3
+4. Read-only deterministic editor suggestions, complete in 0.3
 5. AI Client and Connectors integration, planned for 0.4
 6. Explicit one-click link insertion, planned for 0.5
 7. Site-level link audit and maintenance tools, planned for 0.6

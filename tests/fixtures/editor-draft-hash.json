@@ -1,0 +1,17 @@
+{
+  "payload": {
+    "post_id": 0,
+    "post_type": "post",
+    "title": "Title\u2028Café / slash \"quote\" \\ backslash\ncontrol\ttext",
+    "taxonomies": {},
+    "units": [
+      {
+        "client_id": "shared-unicode-fixture",
+        "block_name": "core/paragraph",
+        "markup": "<!-- wp:paragraph --><p>Line\u2028separator and paragraph\u2029separator. 普通 Unicode 😀 emoji / \"quotes\" \\ backslash.\u0001</p><!-- /wp:paragraph -->"
+      }
+    ]
+  },
+  "canonical": "{\"algorithm_version\":1,\"post_id\":0,\"post_type\":\"post\",\"title\":\"Title\u2028Café / slash \\\"quote\\\" \\\\ backslash\\ncontrol\\ttext\",\"taxonomies\":{},\"units\":[{\"client_id\":\"shared-unicode-fixture\",\"block_name\":\"core/paragraph\",\"markup\":\"<!-- wp:paragraph --><p>Line\u2028separator and paragraph\u2029separator. 普通 Unicode 😀 emoji / \\\"quotes\\\" \\\\ backslash.\\u0001</p><!-- /wp:paragraph -->\"}]}",
+  "sha256": "4bfad00053506961ef0f9f7345dd0a6b3fd00f7ee04dea6b9528809a380d6e5b"
+}

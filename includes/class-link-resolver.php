@@ -22,6 +22,19 @@ final class Link_Resolver {
 	 * @return array{normalized_url:string,target_post_id:?int,target_identity_hash:string,is_self:int}|null
 	 */
 	public static function resolve( string $href, \WP_Post $source ): ?array {
+		return self::resolve_from_base( $href, (string) get_permalink( $source ), (int) $source->ID );
+	}
+
+	/**
+	 * Resolve an already-decoded href against an explicit trusted base URL.
+	 *
+	 * This is used for unsaved editor drafts, including new posts that do not
+	 * yet have a WordPress permalink. Callers must pass the attribute value
+	 * returned by WordPress' HTML parser without decoding it again.
+	 *
+	 * @return array{normalized_url:string,target_post_id:?int,target_identity_hash:string,is_self:int}|null
+	 */
+	public static function resolve_from_base( string $href, string $base, int $source_post_id = 0 ): ?array {
 		$href = trim( $href );
 
 		if ( '' === $href || '#' === substr( $href, 0, 1 ) ) {
@@ -33,8 +46,7 @@ final class Link_Resolver {
 			return null;
 		}
 
-		$base       = (string) get_permalink( $source );
-		$normalized = self::resolve_reference( $href, $base );
+		$normalized = self::normalize_reference( $href, $base );
 		if ( null === $normalized || ! self::is_internal_url( $normalized ) ) {
 			return null;
 		}
@@ -57,8 +69,15 @@ final class Link_Resolver {
 			'normalized_url'      => $normalized,
 			'target_post_id'      => $target_id > 0 ? $target_id : null,
 			'target_identity_hash'=> hash( 'sha256', $identity ),
-			'is_self'             => $target_id === (int) $source->ID ? 1 : 0,
+			'is_self'             => $source_post_id > 0 && $target_id === $source_post_id ? 1 : 0,
 		);
+	}
+
+	/**
+	 * Normalize an already-decoded URL reference without resolving post identity.
+	 */
+	public static function normalize_reference( string $reference, string $base ): ?string {
+		return self::resolve_reference( trim( $reference ), $base );
 	}
 
 	/**
