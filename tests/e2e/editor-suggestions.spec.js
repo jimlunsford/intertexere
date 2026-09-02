@@ -22,7 +22,6 @@ async function openSidebar( page ) {
 test.describe( 'Intertexere read-only editor suggestions', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
 		await requestUtils.activatePlugin( 'intertexere' );
-		await requestUtils.activatePlugin( 'intertexere-e2e-adapter' );
 	} );
 
 	test( 'requires explicit AI invocation and overlays fake ranking without changing deterministic score', async ( {
@@ -143,32 +142,32 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		page,
 		requestUtils,
 	} ) => {
-		await requestUtils.deactivatePlugin( 'intertexere-e2e-adapter' );
-		try {
-			await admin.createNewPost( {
-				title: candidateTitle,
-				content: unsavedContent,
-				showWelcomeGuide: false,
-			} );
-			await openSidebar( page );
-			await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
-			await expect(
-				page.getByRole( 'heading', {
-					name: candidateTitle,
-					exact: true,
-				} )
-			).toBeVisible();
-			await expect(
-				page.getByText( /AI enhancement is disabled/ )
-			).toBeVisible();
-			expect(
-				await page
-					.getByRole( 'button', { name: 'Enhance with AI' } )
-					.count()
-			).toBe( 0 );
-		} finally {
-			await requestUtils.activatePlugin( 'intertexere-e2e-adapter' );
-		}
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'disabled' },
+		} );
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+		await expect(
+			page.getByText( /AI enhancement is disabled/ )
+		).toBeVisible();
+		expect(
+			await page
+				.getByRole( 'button', { name: 'Enhance with AI' } )
+				.count()
+		).toBe( 0 );
 	} );
 
 	test( 'keeps deterministic suggestions available when no compatible model exists', async ( {

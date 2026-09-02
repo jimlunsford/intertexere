@@ -8,7 +8,7 @@ add_filter(
 	'option_intertexere_settings',
 	static function ( $settings ) {
 		$settings = is_array( $settings ) ? $settings : array();
-		$settings['enable_ai_enhancement'] = true;
+		$settings['enable_ai_enhancement'] = 'disabled' !== get_option( 'intertexere_e2e_ai_mode', 'available' );
 		return $settings;
 	},
 	99
@@ -27,7 +27,7 @@ add_action(
 				},
 				'callback'            => static function ( WP_REST_Request $request ): WP_REST_Response {
 					$mode = sanitize_key( (string) $request->get_param( 'mode' ) );
-					if ( ! in_array( $mode, array( 'available', 'unavailable', 'delayed' ), true ) ) {
+					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed' ), true ) ) {
 						$mode = 'available';
 					}
 					update_option( 'intertexere_e2e_ai_mode', $mode, false );
