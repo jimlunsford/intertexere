@@ -124,6 +124,14 @@ Milestone 0.3 pins Node.js 22.13.0 and all WordPress, Jest, and Playwright devel
 
 The PHP integration matrix remains WordPress 7.1 with PHP 7.4, 8.1, and 8.3. The browser suite uses `@wordpress/env` with WordPress 7.1 and Chromium. A mocked DOM test is not a substitute for the browser job.
 
+### 0.4 AI test boundary
+
+Milestone 0.4 production code must call the WordPress AI Client through a narrow injectable adapter. Unit, integration, and browser tests use a deterministic fake adapter and must not require a live provider, paid network call, connector credential, or GitHub Actions secret.
+
+Tests must keep provider latency separate from local preparation and validation measurements. They must exercise unavailable, unconfigured, timeout, rate-limit, malformed-output, stale-request, prompt-injection, privacy, and no-mutation paths while retaining the complete 0.1 through 0.3 regression suites.
+
+No implementation test may weaken the product contract by bypassing server-side deterministic candidate validation. A fake provider simulates only the WordPress AI Client boundary; it does not replace the current draft analyzer, candidate authority, target validation, or editor request-ownership behavior.
+
 ## 10. Content Mutation Requires Stronger Testing
 
 Any change that can modify post content must test at least:

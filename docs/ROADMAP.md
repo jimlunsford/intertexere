@@ -102,6 +102,8 @@ Acceptance direction:
 
 ## 0.4 WordPress-Native AI Integration
 
+Status: planned and not implemented. See [WordPress-Native AI Integration](AI-INTEGRATION.md) and [0.4 Acceptance Criteria](ACCEPTANCE-0.4.md).
+
 Goal: use WordPress' provider-agnostic AI infrastructure for contextual ranking and explanation.
 
 Scope:
@@ -116,6 +118,19 @@ Scope:
 - timeout/rate-limit/provider-error behavior
 - privacy review of prompt payloads
 
+Architecture direction:
+
+- deterministic 0.3 analysis remains authoritative and independently usable
+- AI is disabled by default and explicitly user-triggered
+- server-side invocation through `wp_ai_client_prompt()` and the WordPress default provider registry
+- provider and credential configuration remains in WordPress Connectors
+- at most eight server-validated deterministic candidates enter one bounded structured request
+- strict candidate-key, rank, explanation, anchor, stale-state, and current-target validation
+- filtering and reranking remain separate from the deterministic score
+- existing sidebar states are extended without adding an insertion control
+- session-only AI output, no persistent AI data, and no schema change
+- no Abilities or tools are exposed to the model
+
 Acceptance direction:
 
 - normal editing works with no AI provider configured
@@ -123,6 +138,9 @@ Acceptance direction:
 - AI cannot invent an eligible target without deterministic validation
 - only constrained draft context and candidate data are sent externally
 - provider-specific behavior does not become the product's core contract
+- no external request occurs without an explicit current-editor action
+- malformed or stale AI output cannot replace deterministic results
+- schema remains version 2 and post content remains unchanged
 
 ## 0.5 Explicit Link Insertion
 

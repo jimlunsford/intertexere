@@ -48,9 +48,11 @@ The initial roadmap is:
 - [Roadmap](docs/ROADMAP.md)
 - [Internal Link Graph design](docs/INTERNAL-LINK-GRAPH.md)
 - [Read-Only Editor Suggestions design](docs/EDITOR-SUGGESTIONS.md)
+- [WordPress-Native AI Integration plan](docs/AI-INTEGRATION.md)
 - [0.1 Acceptance Criteria](docs/ACCEPTANCE-0.1.md)
 - [0.2 Acceptance Criteria](docs/ACCEPTANCE-0.2.md)
 - [0.3 Acceptance Criteria](docs/ACCEPTANCE-0.3.md)
+- [0.4 Acceptance Criteria](docs/ACCEPTANCE-0.4.md)
 
 ## Name
 
