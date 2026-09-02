@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the planned completion contract for milestone 0.4, WordPress-Native AI Integration. The milestone is not implemented.
+This document records the completion contract implemented by milestone 0.4, WordPress-Native AI Integration.
 
 ## Scope gate
 

@@ -244,7 +244,7 @@ There is no Insert Link action. Session dismissals are keyed by analysis ID and 
 
 - 0.1 remains the only content-index store. 0.3 reads its active generation and adds no parallel content copy.
 - 0.2 remains the only authoritative derived edge store. 0.3 reads active graph relationships and unsaved draft links without weakening rebuild concurrency.
-- 0.4 may filter, rerank, explain, and select an exact existing anchor for the bounded deterministic candidate set through WordPress-native AI. Deterministic results remain authoritative and independently usable. See [WordPress-Native AI Integration](AI-INTEGRATION.md).
+- 0.4 implements optional filtering, reranking, explanation, and exact-existing-anchor selection for the bounded deterministic candidate set through WordPress-native AI. Deterministic results remain authoritative and independently usable. See [WordPress-Native AI Integration](AI-INTEGRATION.md).
 - 0.5 may validate and insert an explicitly approved suggestion. It must treat every 0.3 location as stale until revalidated.
 - 0.6 may reuse the retrieval service for audits, but 0.3 does not calculate orphan or under-linked status.
 

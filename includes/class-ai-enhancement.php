@@ -64,6 +64,9 @@ final class AI_Enhancement {
 		if ( is_wp_error( $validated ) ) {
 			return $validated;
 		}
+		if ( ! self::current_user_can_edit_source( $validated['draft'] ) ) {
+			return self::error( 'intertexere_ai_forbidden', 'You are not allowed to enhance this draft.', 403 );
+		}
 
 		$deterministic_started = microtime( true );
 		$deterministic = Editor_Suggestions::analyze( $validated['draft'] );
@@ -71,6 +74,7 @@ final class AI_Enhancement {
 		if ( is_wp_error( $deterministic ) ) {
 			return $deterministic;
 		}
+		$deterministic_queries = (int) ( Editor_Suggestions::last_metrics()['query_count'] ?? 0 );
 		if ( ! hash_equals( (string) $deterministic['analysis_id'], $validated['analysis_id'] ) ) {
 			return self::stale();
 		}
@@ -117,6 +121,9 @@ final class AI_Enhancement {
 		}
 
 		do_action( 'intertexere_ai_before_final_revalidation', $validated, $evaluations );
+		if ( ! self::current_user_can_edit_source( $validated['draft'] ) ) {
+			return self::stale();
+		}
 		$current = Editor_Suggestions::analyze( $validated['draft'] );
 		if ( is_wp_error( $current )
 			|| ! hash_equals( $validated['analysis_id'], (string) $current['analysis_id'] )
@@ -127,6 +134,16 @@ final class AI_Enhancement {
 		}
 
 		$current_map = self::suggestion_map( $current['suggestions'] );
+		$current_context = Editor_Suggestions::context_for_ai( $validated['draft'] );
+		if ( is_wp_error( $current_context ) ) {
+			return self::stale();
+		}
+		$current_prepared = self::prepare_prompt( $validated, $current, $current_map, $current_context );
+		if ( is_wp_error( $current_prepared )
+			|| ! hash_equals( $prepared['prompt'], $current_prepared['prompt'] )
+			|| $prepared['candidate_keys'] !== $current_prepared['candidate_keys'] ) {
+			return self::stale();
+		}
 		$overlay     = array();
 		foreach ( $prepared['candidate_keys'] as $candidate_key => $candidate_id ) {
 			if ( ! isset( $current_map[ $candidate_id ], $evaluations[ $candidate_key ] ) ) {
@@ -164,6 +181,7 @@ final class AI_Enhancement {
 		$validation_ms = round( ( microtime( true ) - $validation_started ) * 1000, 3 );
 		$provider_ms   = isset( $provider['provider_latency_ms'] ) ? (float) $provider['provider_latency_ms'] : 0.0;
 		$total_ms      = round( ( microtime( true ) - $started_at ) * 1000, 3 );
+		$total_queries = get_num_queries() - $query_started;
 		self::$last_metrics = array(
 			'deterministic_ms'          => $deterministic_ms,
 			'candidate_count'           => count( $validated['candidate_ids'] ),
@@ -172,8 +190,9 @@ final class AI_Enhancement {
 			'response_validation_ms'    => $validation_ms,
 			'provider_latency_ms'       => $provider_ms,
 			'provider_independent_ms'   => max( 0.0, round( $total_ms - $provider_ms, 3 ) ),
-			'total_query_count'         => get_num_queries() - $query_started,
-			'deterministic_query_count' => (int) ( Editor_Suggestions::last_metrics()['query_count'] ?? 0 ),
+			'total_query_count'         => $total_queries,
+			'deterministic_query_count' => $deterministic_queries,
+			'additional_query_count'    => max( 0, $total_queries - $deterministic_queries ),
 		);
 
 		return array(
@@ -234,8 +253,9 @@ final class AI_Enhancement {
 	 * @return array<string, mixed>|\WP_Error
 	 */
 	private static function prepare_prompt( array $validated, array $deterministic, array $suggestion_map, array $context ) {
+		$title      = self::truncate_bytes( (string) $context['validated']['title'], 4096 );
 		$units      = array();
-		$unit_bytes = 0;
+		$unit_bytes = strlen( $title );
 		foreach ( array_slice( $context['text_units'], 0, self::MAX_CONTEXT_UNITS ) as $text_unit ) {
 			$remaining = self::MAX_DRAFT_CONTEXT_BYTES - $unit_bytes;
 			if ( $remaining <= 0 ) {
@@ -289,7 +309,7 @@ final class AI_Enhancement {
 			'contract_version' => self::CONTRACT_VERSION,
 			'prompt_version'   => self::PROMPT_VERSION,
 			'draft'            => array(
-				'title' => self::truncate_bytes( (string) $context['validated']['title'], 4096 ),
+				'title' => $title,
 				'units' => array_values( $units ),
 			),
 			'candidates'       => $candidates,
@@ -460,6 +480,26 @@ final class AI_Enhancement {
 			}
 		}
 		return $map;
+	}
+
+	/**
+	 * Repeat the source capability boundary inside the reusable service.
+	 *
+	 * @param array<string, mixed> $draft Validated draft-shaped input.
+	 */
+	private static function current_user_can_edit_source( array $draft ): bool {
+		$post_id   = isset( $draft['post_id'] ) && is_int( $draft['post_id'] ) ? $draft['post_id'] : -1;
+		$post_type = isset( $draft['post_type'] ) && is_string( $draft['post_type'] ) ? $draft['post_type'] : '';
+
+		if ( $post_id < 0 || ! Editor_Suggestions::is_supported_source_type( $post_type ) ) {
+			return false;
+		}
+		if ( $post_id > 0 ) {
+			return current_user_can( 'edit_post', $post_id );
+		}
+
+		$object = get_post_type_object( $post_type );
+		return $object && current_user_can( $object->cap->edit_posts );
 	}
 
 	/** @return string[] */

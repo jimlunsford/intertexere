@@ -114,9 +114,196 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$metrics = AI_Enhancement::last_metrics();
 		fwrite( STDOUT, sprintf( "\n0.4 AI fixture: %d candidates, %d queries, %d prompt bytes, %.3f ms prep, %.3f ms validation, %.3f ms provider-independent\n", $metrics['candidate_count'], $metrics['total_query_count'], $metrics['prompt_bytes'], $metrics['prompt_construction_ms'], $metrics['response_validation_ms'], $metrics['provider_independent_ms'] ) );
 		$this->assertLessThanOrEqual( 20, $metrics['total_query_count'] );
+		$this->assertLessThanOrEqual( 8, $metrics['additional_query_count'] );
 		$this->assertLessThan( 500, $metrics['prompt_construction_ms'] + $metrics['response_validation_ms'] );
 		$this->assertLessThan( 3500, $metrics['provider_independent_ms'] );
 		$this->assertLessThanOrEqual( AI_Enhancement::MAX_MODEL_PAYLOAD_BYTES, $metrics['prompt_bytes'] );
+	}
+
+	public function test_prompt_and_output_boundaries_are_enforced_at_the_adapter_boundary(): void {
+		$this->draft['units'] = array();
+		for ( $index = 0; $index < 10; ++$index ) {
+			$this->draft['units'][] = array(
+				'client_id' => 'bounded-' . $index,
+				'block_name'=> 'core/paragraph',
+				'markup'    => '<!-- wp:paragraph --><p>Focused Recovery Practice ' . str_repeat( 'bounded context ', 140 ) . '</p><!-- /wp:paragraph -->',
+			);
+		}
+		$this->draft['title'] = 'Focused Recovery Practice ' . str_repeat( 'T', 5000 );
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		$this->adapter->result = $this->valid_raw( null );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+		$this->assertIsArray( $result );
+		$payload = json_decode( $this->adapter->last_request['prompt'], true );
+		$this->assertIsArray( $payload );
+		$this->assertLessThanOrEqual( AI_Enhancement::MAX_CONTEXT_UNITS, count( $payload['draft']['units'] ) );
+		$draft_bytes = strlen( $payload['draft']['title'] );
+		foreach ( $payload['draft']['units'] as $unit ) {
+			$draft_bytes += strlen( $unit['text'] );
+		}
+		$this->assertLessThanOrEqual( AI_Enhancement::MAX_DRAFT_CONTEXT_BYTES, $draft_bytes );
+		foreach ( $payload['candidates'] as $candidate ) {
+			$this->assertLessThanOrEqual( AI_Enhancement::MAX_CANDIDATE_CONTEXT_BYTES, strlen( (string) wp_json_encode( $candidate, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ) );
+		}
+		$this->assertLessThanOrEqual( AI_Enhancement::MAX_MODEL_PAYLOAD_BYTES, strlen( $this->adapter->last_request['prompt'] ) );
+		$this->assertSame( 1500, AI_Enhancement::MAX_OUTPUT_TOKENS );
+		$this->assertSame( 32768, AI_Enhancement::MAX_OUTPUT_BYTES );
+		$this->assertSame( 20.0, AI_Enhancement::PROVIDER_TIMEOUT_SECONDS );
+	}
+
+	public function test_complete_response_validation_rejects_duplicate_missing_and_invalid_ranks(): void {
+		$second_id = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_title'   => 'Focused Recovery Practice Companion',
+				'post_content' => '<p>Focused Recovery Practice Companion through repetition.</p>',
+			)
+		);
+		Indexer::refresh_post( $second_id );
+		Link_Graph::refresh_post( $second_id );
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		$this->assertGreaterThanOrEqual( 2, count( $this->analysis['suggestions'] ) );
+		$request = $this->request();
+		$request['candidate_ids'] = array_column( array_slice( $this->analysis['suggestions'], 0, 2 ), 'target_post_id' );
+
+		$cases = array(
+			array(
+				array(
+					$this->evaluation( 'c1', 'keep', 1 ),
+					$this->evaluation( 'c1', 'keep', 2 ),
+				),
+				'duplicate candidate key',
+			),
+			array( array( $this->evaluation( 'c1', 'keep', 1 ) ), 'missing candidate key' ),
+			array(
+				array(
+					$this->evaluation( 'c1', 'keep', 1 ),
+					$this->evaluation( 'c2', 'keep', 1 ),
+				),
+				'duplicate rank',
+			),
+			array(
+				array(
+					$this->evaluation( 'c1', 'keep', 1 ),
+					$this->evaluation( 'c2', 'keep', 3 ),
+				),
+				'non-contiguous rank',
+			),
+		);
+		foreach ( $cases as $case ) {
+			$this->adapter->result = $this->raw_evaluations( $case[0] );
+			$error = AI_Enhancement::enhance( $request );
+			$this->assertSame( 'intertexere_ai_malformed_response', $error->get_error_code(), $case[1] );
+		}
+	}
+
+	public function test_unicode_reason_and_anchor_occurrence_boundaries(): void {
+		$bounded_reason = str_repeat( "\u{1F642}", AI_Enhancement::MAX_REASON_CHARACTERS );
+		$this->adapter->result = $this->raw_evaluations( array( $this->evaluation( 'c1', 'keep', 1, $bounded_reason ) ) );
+		$this->assertIsArray( AI_Enhancement::enhance( $this->request() ) );
+
+		$oversized_reason = $bounded_reason . "\u{1F642}";
+		$this->adapter->result = $this->raw_evaluations( array( $this->evaluation( 'c1', 'keep', 1, $oversized_reason ) ) );
+		$this->assertSame( 'intertexere_ai_malformed_response', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+
+		$this->draft['units'][0]['markup'] = '<!-- wp:paragraph --><p>Focused Recovery Practice then Focused Recovery Practice creates durable proof.</p><!-- /wp:paragraph -->';
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		$anchor = array( 'unit_key' => 'u1', 'exact_text' => 'Focused Recovery Practice', 'occurrence' => 1 );
+		$this->adapter->result = $this->raw_evaluations( array( $this->evaluation( 'c1', 'keep', 1, 'Grounded.', $anchor ) ) );
+		$result = AI_Enhancement::enhance( $this->request() );
+		$this->assertGreaterThan( 0, $result['evaluations'][0]['anchor']['start'] );
+
+		$anchor['occurrence'] = 2;
+		$this->adapter->result = $this->raw_evaluations( array( $this->evaluation( 'c1', 'keep', 1, 'Grounded.', $anchor ) ) );
+		$result = AI_Enhancement::enhance( $this->request() );
+		$this->assertNull( $result['evaluations'][0]['anchor'] );
+	}
+
+	public function test_draft_and_generation_changes_are_stale_without_authorizing_provider_output(): void {
+		$changed = $this->request();
+		$changed['draft']['title'] .= ' changed';
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $changed )->get_error_code() );
+		$this->assertSame( 0, $this->adapter->calls );
+
+		add_action( 'intertexere_ai_before_final_revalidation', static function (): void {
+			update_option( Schema::GENERATION_OPTION, wp_generate_uuid4(), false );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+		remove_all_actions( 'intertexere_ai_before_final_revalidation' );
+
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		add_action( 'intertexere_ai_before_final_revalidation', static function (): void {
+			update_option( Schema::GRAPH_GENERATION_OPTION, wp_generate_uuid4(), false );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+	}
+
+	public function test_target_metadata_and_eligibility_changes_after_provider_are_stale(): void {
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_update_post( array(
+				'ID'         => $this->target_id,
+				'post_title' => 'Changed while provider ran',
+				'post_name'  => 'changed-while-provider-ran',
+			) );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+
+		remove_all_actions( 'intertexere_ai_before_final_revalidation' );
+		wp_update_post( array( 'ID' => $this->target_id, 'post_title' => 'Focused Recovery Practice', 'post_status' => 'publish', 'post_password' => '' ) );
+		Indexer::refresh_post( $this->target_id );
+		Link_Graph::refresh_post( $this->target_id );
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_update_post( array( 'ID' => $this->target_id, 'post_status' => 'draft' ) );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+	}
+
+	public function test_target_becoming_already_linked_after_provider_is_stale(): void {
+		$future_url = home_url( '/future-ai-target/' );
+		$this->draft['units'][0]['markup'] = '<!-- wp:paragraph --><p>Focused Recovery Practice creates durable proof. <a href="' . esc_url( $future_url ) . '">Future destination</a>.</p><!-- /wp:paragraph -->';
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		$this->assertNotEmpty( $this->analysis['suggestions'] );
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_update_post( array( 'ID' => $this->target_id, 'post_name' => 'future-ai-target' ) );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+	}
+
+	public function test_deleted_target_after_provider_is_stale(): void {
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_delete_post( $this->target_id, true );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+	}
+
+	public function test_lost_source_capability_after_provider_is_stale(): void {
+		add_action( 'intertexere_ai_before_final_revalidation', static function (): void {
+			wp_get_current_user()->set_role( '' );
+		} );
+		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+	}
+
+	public function test_enhancement_does_not_mutate_plugin_or_wordpress_persistence(): void {
+		global $wpdb;
+		$tables = array( Schema::table_name(), Schema::graph_sources_table_name(), Schema::link_edges_table_name() );
+		$before = array();
+		foreach ( $tables as $table ) {
+			$before[ $table ] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+		}
+		$before_options = get_option( Settings::OPTION );
+		$before_meta = get_post_meta( $this->target_id );
+		$before_content = get_post_field( 'post_content', $this->target_id );
+
+		$this->assertIsArray( AI_Enhancement::enhance( $this->request() ) );
+		$this->assertSame( $before_options, get_option( Settings::OPTION ) );
+		$this->assertSame( $before_meta, get_post_meta( $this->target_id ) );
+		$this->assertSame( $before_content, get_post_field( 'post_content', $this->target_id ) );
+		foreach ( $tables as $table ) {
+			$this->assertSame( $before[ $table ], (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ) );
+		}
+		$this->assertSame( '2', Schema::VERSION );
 	}
 
 	public function test_disabled_unavailable_and_provider_error_categories_preserve_deterministic_results(): void {
@@ -134,10 +321,13 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->adapter->supported = true;
 		$cases = array(
 			array( new WP_Error( 'prompt_network_error', 'secret timeout' ), 'intertexere_ai_network' ),
+			array( new WP_Error( 'intertexere_ai_timeout', 'secret timeout' ), 'intertexere_ai_network' ),
 			array( new WP_Error( 'prompt_client_error', 'secret credential', array( 'status' => 401 ) ), 'intertexere_ai_invalid_configuration' ),
 			array( new WP_Error( 'prompt_client_error', 'secret rate', array( 'status' => 429 ) ), 'intertexere_ai_rate_limit' ),
 			array( new WP_Error( 'prompt_token_limit_reached', 'secret token' ), 'intertexere_ai_token_limit' ),
 			array( new WP_Error( 'prompt_upstream_server_error', 'secret upstream' ), 'intertexere_ai_upstream' ),
+			array( new WP_Error( 'prompt_prevented', 'secret disabled' ), 'intertexere_ai_unavailable' ),
+			array( new WP_Error( 'unexpected_provider_failure', 'secret general' ), 'intertexere_ai_failed' ),
 		);
 		foreach ( $cases as $case ) {
 			$this->adapter->result = $case[0];
@@ -151,6 +341,7 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 	public function test_wordpress_71_adapter_uses_the_runtime_builder_and_final_support_check(): void {
 		remove_all_filters( 'intertexere_ai_client_adapter' );
 		$this->assertTrue( function_exists( 'wp_ai_client_prompt' ) );
+		$this->assertTrue( wp_supports_ai() );
 		$this->assertTrue( class_exists( 'WP_AI_Client_Prompt_Builder' ) );
 		$this->assertTrue( class_exists( 'WordPress\\AiClient\\Providers\\Http\\DTO\\RequestOptions' ) );
 
@@ -176,6 +367,10 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$request['unknown'] = true;
 		$this->assertSame( 'intertexere_ai_invalid_request', AI_Enhancement::enhance( $request )->get_error_code() );
 
+		$duplicate = $this->request();
+		$duplicate['candidate_ids'][] = $duplicate['candidate_ids'][0];
+		$this->assertSame( 'intertexere_ai_invalid_candidate', AI_Enhancement::enhance( $duplicate )->get_error_code() );
+
 		$outside = $this->request();
 		$outside['candidate_ids'] = array( 999999 );
 		$this->assertSame( 'intertexere_ai_invalid_candidate', AI_Enhancement::enhance( $outside )->get_error_code() );
@@ -186,6 +381,8 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 
 		$invalid_responses = array(
 			'{}',
+			wp_json_encode( array( 'contract_version' => 2, 'evaluations' => array( $this->evaluation( 'c1', 'keep', 1 ) ) ) ),
+			wp_json_encode( array( 'contract_version' => 1, 'evaluations' => array( array_merge( $this->evaluation( 'c1', 'keep', 1 ), array( 'unknown' => true ) ) ) ) ),
 			wp_json_encode( array( 'contract_version' => 1, 'evaluations' => array() ) ),
 			wp_json_encode( array( 'contract_version' => 1, 'evaluations' => array( array( 'candidate_key' => 'unknown', 'decision' => 'keep', 'rank' => 1, 'reason' => 'Reason', 'anchor' => null ) ) ) ),
 			wp_json_encode( array( 'contract_version' => 1, 'evaluations' => array( array( 'candidate_key' => 'c1', 'decision' => 'maybe', 'rank' => 1, 'reason' => 'Reason', 'anchor' => null ) ) ) ),
@@ -267,5 +464,21 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 				),
 			)
 		);
+	}
+
+	/** @return array<string, mixed> */
+	private function evaluation( string $key, string $decision, $rank, string $reason = 'Grounded reason.', $anchor = null ): array {
+		return array(
+			'candidate_key' => $key,
+			'decision'      => $decision,
+			'rank'          => $rank,
+			'reason'        => $reason,
+			'anchor'        => $anchor,
+		);
+	}
+
+	/** @param array<int, array<string, mixed>> $evaluations */
+	private function raw_evaluations( array $evaluations ): string {
+		return (string) wp_json_encode( array( 'contract_version' => 1, 'evaluations' => $evaluations ) );
 	}
 }

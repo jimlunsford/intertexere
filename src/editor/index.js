@@ -10,6 +10,7 @@ import {
 	analysisCacheKey,
 	aiCacheKey,
 	createRequestGate,
+	isCurrentAIResponse,
 	visibleSuggestions,
 } from './request-state';
 import { buildSnapshot, clientHashInput, sha256 } from './snapshot';
@@ -17,6 +18,27 @@ import { AIControls, AnalysisBody } from './components';
 import './style.scss';
 
 const settings = window.IntertexereEditorSettings;
+
+function initialAIStatus( ai ) {
+	if ( ! ai?.enabled ) {
+		return 'disabled';
+	}
+	return ai.available ? 'ready' : 'unavailable';
+}
+
+function failedAIStatus( error ) {
+	if ( error?.code === 'intertexere_ai_stale' ) {
+		return 'stale';
+	}
+	if (
+		[ 'intertexere_ai_unavailable', 'intertexere_ai_disabled' ].includes(
+			error?.code
+		)
+	) {
+		return 'unavailable';
+	}
+	return 'failed';
+}
 
 export function EditorSuggestionsSidebar() {
 	const editorState = useSelect( ( select ) => {
@@ -55,11 +77,7 @@ export function EditorSuggestionsSidebar() {
 	} );
 	const [ dismissed, setDismissed ] = useState( new Set() );
 	const [ aiState, setAiState ] = useState( {
-		status: settings.ai?.enabled
-			? settings.ai?.available
-				? 'ready'
-				: 'unavailable'
-			: 'disabled',
+		status: initialAIStatus( settings.ai ),
 		response: null,
 		error: '',
 		signature: '',
@@ -92,11 +110,20 @@ export function EditorSuggestionsSidebar() {
 		} );
 		return map;
 	}, [ aiState.response ] );
-	const shown = enhancedMode && aiState.status === 'enhanced'
-		? deterministicShown
-			.filter( ( suggestion ) => aiEvaluations.get( suggestion.target_post_id )?.decision === 'keep' )
-			.sort( ( left, right ) => aiEvaluations.get( left.target_post_id ).rank - aiEvaluations.get( right.target_post_id ).rank )
-		: deterministicShown;
+	const shown =
+		enhancedMode && aiState.status === 'enhanced'
+			? deterministicShown
+					.filter(
+						( suggestion ) =>
+							aiEvaluations.get( suggestion.target_post_id )
+								?.decision === 'keep'
+					)
+					.sort(
+						( left, right ) =>
+							aiEvaluations.get( left.target_post_id ).rank -
+							aiEvaluations.get( right.target_post_id ).rank
+					)
+			: deterministicShown;
 
 	useEffect( () => {
 		controller.current?.abort();
@@ -114,11 +141,7 @@ export function EditorSuggestionsSidebar() {
 			postIdentity: '',
 		} );
 		setAiState( {
-			status: settings.ai?.enabled
-				? settings.ai?.available
-					? 'ready'
-					: 'unavailable'
-				: 'disabled',
+			status: initialAIStatus( settings.ai ),
 			response: null,
 			error: '',
 			signature: '',
@@ -126,15 +149,22 @@ export function EditorSuggestionsSidebar() {
 		setEnhancedMode( false );
 	}, [ postIdentity ] );
 
-	useEffect( () => () => {
-		controller.current?.abort();
-		aiController.current?.abort();
-		gate.current.invalidate();
-		aiGate.current.invalidate();
-	}, [] );
+	useEffect(
+		() => () => {
+			controller.current?.abort();
+			aiController.current?.abort();
+			gate.current.invalidate();
+			aiGate.current.invalidate();
+		},
+		[]
+	);
 
 	useEffect( () => {
-		if ( aiState.signature && aiState.postIdentity === postIdentity && snapshot?.signature !== aiState.signature ) {
+		if (
+			aiState.signature &&
+			aiState.postIdentity === postIdentity &&
+			snapshot?.signature !== aiState.signature
+		) {
 			aiController.current?.abort();
 			aiGate.current.invalidate();
 			aiCache.current.clear();
@@ -145,7 +175,12 @@ export function EditorSuggestionsSidebar() {
 			} ) );
 			setEnhancedMode( false );
 		}
-	}, [ snapshot?.signature, aiState.signature, aiState.postIdentity, postIdentity ] );
+	}, [
+		snapshot?.signature,
+		aiState.signature,
+		aiState.postIdentity,
+		postIdentity,
+	] );
 
 	const analyze = async () => {
 		if ( ! snapshot ) {
@@ -157,11 +192,7 @@ export function EditorSuggestionsSidebar() {
 		aiCache.current.clear();
 		setEnhancedMode( false );
 		setAiState( {
-			status: settings.ai?.enabled
-				? settings.ai?.available
-					? 'ready'
-					: 'unavailable'
-				: 'disabled',
+			status: initialAIStatus( settings.ai ),
 			response: null,
 			error: '',
 			signature: '',
@@ -242,7 +273,12 @@ export function EditorSuggestionsSidebar() {
 	};
 
 	const enhanceWithAI = async () => {
-		if ( ! snapshot || ! state.response || stale || ! settings.ai?.enabled ) {
+		if (
+			! snapshot ||
+			! state.response ||
+			stale ||
+			! settings.ai?.enabled
+		) {
 			return;
 		}
 
@@ -302,10 +338,15 @@ export function EditorSuggestionsSidebar() {
 				! aiGate.current.owns( requestToken ) ||
 				requestedIdentity !== identity.current ||
 				requestedSignature !== currentSignature.current ||
-				response.analysis_id !== requestedAnalysis ||
-				response.draft_hash !== state.response.draft_hash ||
-				response.index_generation !== state.response.index_generation ||
-				response.graph_generation !== state.response.graph_generation
+				! isCurrentAIResponse( response, {
+					analysisId: requestedAnalysis,
+					draftHash: state.response.draft_hash,
+					indexGeneration: state.response.index_generation,
+					graphGeneration: state.response.graph_generation,
+					candidateIds,
+					contractVersion: settings.ai.contractVersion,
+					promptVersion: settings.ai.promptVersion,
+				} )
 			) {
 				return;
 			}
@@ -320,18 +361,21 @@ export function EditorSuggestionsSidebar() {
 			} );
 			setEnhancedMode( true );
 		} catch ( error ) {
-			if ( error?.name === 'AbortError' || ! aiGate.current.owns( requestToken ) ) {
+			if (
+				error?.name === 'AbortError' ||
+				! aiGate.current.owns( requestToken )
+			) {
 				return;
 			}
-			const unavailable = [
-				'intertexere_ai_unavailable',
-				'intertexere_ai_disabled',
-			].includes( error?.code );
-			const staleResponse = error?.code === 'intertexere_ai_stale';
 			setAiState( {
-				status: staleResponse ? 'stale' : unavailable ? 'unavailable' : 'failed',
+				status: failedAIStatus( error ),
 				response: null,
-				error: error?.message || __( 'AI enhancement failed. Deterministic suggestions remain available.', 'intertexere' ),
+				error:
+					error?.message ||
+					__(
+						'AI enhancement failed. Deterministic suggestions remain available.',
+						'intertexere'
+					),
 				signature: requestedSignature,
 				postIdentity: requestedIdentity,
 			} );
@@ -364,7 +408,9 @@ export function EditorSuggestionsSidebar() {
 						response={ state.response }
 						suggestions={ shown }
 						stale={ stale }
-						aiEvaluations={ enhancedMode ? aiEvaluations : new Map() }
+						aiEvaluations={
+							enhancedMode ? aiEvaluations : new Map()
+						}
 						enhancedMode={ enhancedMode }
 						onDismiss={ ( targetId ) =>
 							setDismissed( ( current ) =>
@@ -374,13 +420,19 @@ export function EditorSuggestionsSidebar() {
 					/>
 				) }
 				<AIControls
-					configured={ Boolean( settings.ai?.enabled && settings.ai?.available ) }
+					configured={ Boolean(
+						settings.ai?.enabled && settings.ai?.available
+					) }
 					status={ aiState.status }
 					error={ aiState.error }
 					onEnhance={ enhanceWithAI }
-					onToggleMode={ () => setEnhancedMode( ( current ) => ! current ) }
+					onToggleMode={ () =>
+						setEnhancedMode( ( current ) => ! current )
+					}
 					enhancedMode={ enhancedMode }
-					hasDeterministicResults={ Boolean( state.response && deterministicShown.length ) }
+					hasDeterministicResults={ Boolean(
+						state.response && deterministicShown.length
+					) }
 				/>
 				<Button
 					variant="primary"

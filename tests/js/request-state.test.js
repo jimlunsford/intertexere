@@ -2,6 +2,8 @@ import {
 	analysisCacheKey,
 	aiCacheKey,
 	createRequestGate,
+	isCurrentAIResponse,
+	sameOrderedValues,
 	visibleSuggestions,
 } from '../../src/editor/request-state';
 
@@ -14,6 +16,51 @@ describe( 'asynchronous request state', () => {
 		expect( gate.owns( second ) ).toBe( true );
 		gate.invalidate();
 		expect( gate.owns( second ) ).toBe( false );
+	} );
+
+	test( 'rejects stale AI response identity, generations, versions, and candidate order', () => {
+		const expected = {
+			analysisId: 'analysis',
+			draftHash: 'draft',
+			indexGeneration: 'index',
+			graphGeneration: 'graph',
+			candidateIds: [ 4, 2 ],
+			contractVersion: 1,
+			promptVersion: 3,
+		};
+		const response = {
+			analysis_id: 'analysis',
+			draft_hash: 'draft',
+			index_generation: 'index',
+			graph_generation: 'graph',
+			candidate_ids: [ 4, 2 ],
+			contract_version: 1,
+			prompt_version: 3,
+		};
+		expect( isCurrentAIResponse( response, expected ) ).toBe( true );
+		for ( const [ field, value ] of [
+			[ 'analysis_id', 'old-analysis' ],
+			[ 'draft_hash', 'old-draft' ],
+			[ 'index_generation', 'old-index' ],
+			[ 'graph_generation', 'old-graph' ],
+			[ 'candidate_ids', [ 2, 4 ] ],
+			[ 'contract_version', 2 ],
+			[ 'prompt_version', 4 ],
+		] ) {
+			expect(
+				isCurrentAIResponse(
+					{ ...response, [ field ]: value },
+					expected
+				)
+			).toBe( false );
+		}
+	} );
+
+	test( 'binds AI responses to the exact ordered candidate set', () => {
+		expect( sameOrderedValues( [ 4, 2 ], [ 4, 2 ] ) ).toBe( true );
+		expect( sameOrderedValues( [ 4, 2 ], [ 2, 4 ] ) ).toBe( false );
+		expect( sameOrderedValues( [ 4 ], [ 4, 2 ] ) ).toBe( false );
+		expect( sameOrderedValues( null, [ 4 ] ) ).toBe( false );
 	} );
 
 	test( 'keys AI session cache to analysis, ordered candidates, and contract versions', () => {

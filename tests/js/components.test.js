@@ -81,6 +81,23 @@ describe( 'analysis presentation', () => {
 		).toBeInTheDocument();
 	} );
 
+	test( 'renders an all-dropped AI state without hiding deterministic availability', () => {
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				enhancedMode
+			/>
+		);
+		expect(
+			screen.getByText( /AI kept no candidates/ )
+		).toBeInTheDocument();
+	} );
+
 	test( 'renders safe suggestion text, View, Dismiss, and stale state without insertion', () => {
 		const onDismiss = jest.fn();
 		render(
@@ -108,11 +125,14 @@ describe( 'analysis presentation', () => {
 
 	test( 'renders AI rank, escaped explanation, and exact anchor separately from deterministic score', () => {
 		const evaluations = new Map( [
-			[ 14, {
-				rank: 1,
-				reason: '<script>literal explanation</script>',
-				anchor: { exact_text: '<em>existing phrase</em>' },
-			} ],
+			[
+				14,
+				{
+					rank: 1,
+					reason: '<script>literal explanation</script>',
+					anchor: { exact_text: '<em>existing phrase</em>' },
+				},
+			],
 		] );
 		render(
 			<AnalysisBody
@@ -128,14 +148,43 @@ describe( 'analysis presentation', () => {
 		);
 		expect( screen.getByText( '50' ) ).toBeInTheDocument();
 		expect( screen.getByText( '1' ) ).toBeInTheDocument();
-		expect( screen.getByText( '<script>literal explanation</script>' ) ).toBeInTheDocument();
-		expect( screen.getByText( /<em>existing phrase<\/em>/ ) ).toBeInTheDocument();
+		expect(
+			screen.getByText( '<script>literal explanation</script>' )
+		).toBeInTheDocument();
+		expect(
+			screen.getByText( /<em>existing phrase<\/em>/ )
+		).toBeInTheDocument();
 		expect( document.querySelector( 'script' ) ).toBeNull();
 		expect( screen.queryByText( 'Insert Link' ) ).not.toBeInTheDocument();
 	} );
 } );
 
 describe( 'AI controls', () => {
+	test.each( [ 'ready', 'loading', 'enhanced' ] )(
+		'renders the explicit control for %s state',
+		( status ) => {
+			render(
+				<AIControls
+					configured
+					status={ status }
+					error=""
+					onEnhance={ jest.fn() }
+					onToggleMode={ jest.fn() }
+					enhancedMode={ false }
+					hasDeterministicResults
+				/>
+			);
+			expect(
+				screen.getByRole( 'button', {
+					name:
+						status === 'loading'
+							? /Enhancing with AI/
+							: /Enhance with AI/,
+				} )
+			).toBeInTheDocument();
+		}
+	);
+
 	test.each( [
 		[ 'disabled', /disabled in Intertexere settings/ ],
 		[ 'unavailable', /No compatible configured AI model/ ],
@@ -154,7 +203,9 @@ describe( 'AI controls', () => {
 			/>
 		);
 		expect( screen.getByText( expected ) ).toBeInTheDocument();
-		expect( screen.getByText( /Provider processing and retention/ ) ).toBeInTheDocument();
+		expect(
+			screen.getByText( /Provider processing and retention/ )
+		).toBeInTheDocument();
 	} );
 
 	test( 'requires an explicit click and exposes deterministic mode after enhancement', () => {
@@ -172,9 +223,15 @@ describe( 'AI controls', () => {
 			/>
 		);
 		expect( onEnhance ).not.toHaveBeenCalled();
-		fireEvent.click( screen.getByRole( 'button', { name: 'Enhance with AI' } ) );
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Enhance with AI' } )
+		);
 		expect( onEnhance ).toHaveBeenCalledTimes( 1 );
-		fireEvent.click( screen.getByRole( 'button', { name: /View deterministic suggestions/ } ) );
+		fireEvent.click(
+			screen.getByRole( 'button', {
+				name: /View deterministic suggestions/,
+			} )
+		);
 		expect( onToggleMode ).toHaveBeenCalledTimes( 1 );
 		expect( screen.queryByText( 'Insert Link' ) ).not.toBeInTheDocument();
 	} );
