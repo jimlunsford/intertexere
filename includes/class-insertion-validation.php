@@ -240,7 +240,10 @@ final class Insertion_Validation {
 
 	/** @return string[]|\WP_Error */
 	private static function validate_draft_links( $links ) {
-		if ( ! is_array( $links ) || array_values( $links ) !== $links || count( $links ) > self::MAX_DRAFT_LINKS ) {
+		if ( ! is_array( $links ) || array_values( $links ) !== $links ) {
+			return self::invalid( 'The draft link references must be a JSON list.' );
+		}
+		if ( count( $links ) > self::MAX_DRAFT_LINKS ) {
 			return self::invalid( 'The draft contains too many link references.', 413, 'intertexere_insertion_link_limit' );
 		}
 		$validated = array();

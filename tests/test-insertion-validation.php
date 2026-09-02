@@ -237,11 +237,21 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 	}
 
 	public function test_already_linked_and_different_link_overlap_fail_before_mutation(): void {
+		$permalink = get_permalink( $this->target_id );
+		$anchor_html = '<a href="' . esc_url( $permalink ) . '">Insertion Target Alpha</a>';
+		$processor = new WP_HTML_Tag_Processor( $anchor_html );
+		$this->assertTrue( $processor->next_tag( array( 'tag_name' => 'A' ) ) );
+		$parsed_href = $processor->get_attribute( 'href' );
+		$this->assertIsString( $parsed_href );
 		$this->draft = $this->draft_with_markup(
-			'<!-- wp:paragraph --><p>Before <a href="' . esc_url( get_permalink( $this->target_id ) ) . '">Insertion Target Alpha</a> after.</p><!-- /wp:paragraph -->'
+			'<!-- wp:paragraph --><p>Before ' . $anchor_html . ' after.</p><!-- /wp:paragraph -->'
 		);
 		$request = $this->request_payload();
-		$this->assertError( 'intertexere_insertion_already_linked', Insertion_Validation::validate( $request ) );
+		$this->assertError(
+			'intertexere_insertion_already_linked',
+			Insertion_Validation::validate( $request ),
+			'canonical=' . $permalink . '; parsed=' . $parsed_href
+		);
 
 		$this->draft = $this->draft_with_markup(
 			'<!-- wp:paragraph --><p>Before <a href="https://example.org/other">Insertion Target Alpha</a> after.</p><!-- /wp:paragraph -->'
