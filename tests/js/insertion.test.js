@@ -260,6 +260,9 @@ describe( 'RichText link mutation', () => {
 			'https://example.test/current/'
 		);
 		const elapsed = performance.now() - started;
+		process.stdout.write(
+			`\n0.5 client maximum-unit fixture: ${ elapsed.toFixed( 3 ) } ms\n`
+		);
 		expect( result.status ).toBe( 'ready' );
 		expect( elapsed ).toBeLessThan( 100 );
 	} );

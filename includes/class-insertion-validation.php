@@ -375,6 +375,9 @@ final class Insertion_Validation {
 	}
 
 	private static function reference_targets_post( string $href, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink ): bool {
+		if ( hash_equals( $target_permalink, $href ) ) {
+			return true;
+		}
 		$resolved = Link_Resolver::resolve_from_base( $href, $base_url, $source_post_id );
 		if ( null === $resolved ) {
 			return false;
