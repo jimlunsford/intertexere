@@ -102,7 +102,7 @@ Acceptance direction:
 
 ## 0.4 WordPress-Native AI Integration
 
-Status: planned and not implemented. See [WordPress-Native AI Integration](AI-INTEGRATION.md) and [0.4 Acceptance Criteria](ACCEPTANCE-0.4.md).
+Status: complete. See [WordPress-Native AI Integration](AI-INTEGRATION.md) and [0.4 Acceptance Criteria](ACCEPTANCE-0.4.md).
 
 Goal: use WordPress' provider-agnostic AI infrastructure for contextual ranking and explanation.
 

@@ -25,11 +25,11 @@ The project is currently in private initial development.
 - WordPress AI Client
 - WordPress Connectors API
 
-Specific API usage will be verified against current official WordPress developer documentation during implementation.
+Specific API usage is verified against the pinned WordPress 7.1 runtime and Core source before production use.
 
 ## Development Status
 
-Milestones 0.1, 0.2, and 0.3 are complete. Milestone 0.4 is planned and not implemented.
+Milestones 0.1 through 0.4 are complete. Version 0.4.0 adds an optional, explicitly invoked, WordPress-native AI overlay while retaining deterministic 0.3 suggestions as the authority.
 
 The initial roadmap is:
 
@@ -48,7 +48,7 @@ The initial roadmap is:
 - [Roadmap](docs/ROADMAP.md)
 - [Internal Link Graph design](docs/INTERNAL-LINK-GRAPH.md)
 - [Read-Only Editor Suggestions design](docs/EDITOR-SUGGESTIONS.md)
-- [WordPress-Native AI Integration plan](docs/AI-INTEGRATION.md)
+- [WordPress-Native AI Integration](docs/AI-INTEGRATION.md)
 - [0.1 Acceptance Criteria](docs/ACCEPTANCE-0.1.md)
 - [0.2 Acceptance Criteria](docs/ACCEPTANCE-0.2.md)
 - [0.3 Acceptance Criteria](docs/ACCEPTANCE-0.3.md)

@@ -24,19 +24,20 @@ final class Settings {
 	 * private posts, scheduled posts, attachments, revisions, and custom post
 	 * types are excluded unless a later setting deliberately opts them in.
 	 *
-	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[]}
+	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[], enable_ai_enhancement: bool}
 	 */
 	public static function defaults(): array {
 		return array(
 			'eligible_post_types'    => array( 'post', 'page' ),
 			'eligible_post_statuses' => array( 'publish' ),
+			'enable_ai_enhancement'  => false,
 		);
 	}
 
 	/**
 	 * Return validated settings.
 	 *
-	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[]}
+	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[], enable_ai_enhancement: bool}
 	 */
 	public static function get(): array {
 		$stored = get_option( self::OPTION, self::defaults() );
@@ -56,7 +57,7 @@ final class Settings {
 	 * private and unpublished content must not become normal link targets.
 	 *
 	 * @param mixed $value Submitted settings.
-	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[]}
+	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[], enable_ai_enhancement: bool}
 	 */
 	public static function sanitize( $value ): array {
 		$value      = is_array( $value ) ? $value : array();
@@ -79,6 +80,42 @@ final class Settings {
 		return array(
 			'eligible_post_types'    => $clean,
 			'eligible_post_statuses' => array( 'publish' ),
+			'enable_ai_enhancement'  => ! empty( $value['enable_ai_enhancement'] ),
+		);
+	}
+
+	/**
+	 * Merge a focused settings update without resetting unrelated values.
+	 *
+	 * @param array<string, mixed>      $changes Submitted recognized changes.
+	 * @param array<string, mixed>|null $current Existing settings, or null to load them.
+	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[], enable_ai_enhancement: bool}
+	 */
+	public static function merge( array $changes, ?array $current = null ): array {
+		$current = self::sanitize( null === $current ? self::get() : $current );
+
+		if ( array_key_exists( 'eligible_post_types', $changes ) ) {
+			$current['eligible_post_types'] = $changes['eligible_post_types'];
+		}
+		if ( array_key_exists( 'enable_ai_enhancement', $changes ) ) {
+			$current['enable_ai_enhancement'] = $changes['enable_ai_enhancement'];
+		}
+
+		return self::sanitize( $current );
+	}
+
+	/**
+	 * Return only settings whose changes require rebuilding derived data.
+	 *
+	 * @param mixed $value Settings value.
+	 * @return array{eligible_post_types: string[], eligible_post_statuses: string[]}
+	 */
+	public static function eligibility_signature( $value ): array {
+		$clean = self::sanitize( $value );
+
+		return array(
+			'eligible_post_types'    => $clean['eligible_post_types'],
+			'eligible_post_statuses' => $clean['eligible_post_statuses'],
 		);
 	}
 

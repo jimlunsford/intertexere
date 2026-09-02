@@ -2,9 +2,9 @@
 
 ## Status
 
-This document defines the planned architecture for milestone 0.4. It is a planning contract, not an implementation record.
+This document defines the implemented architecture for milestone 0.4.
 
-Milestones 0.1, 0.2, and 0.3 are complete. Milestone 0.4 is planned and not implemented.
+Milestones 0.1 through 0.4 are complete. The implementation retains every read-only, deterministic-authority, privacy, and persistence boundary in this contract.
 
 ## Goal
 
@@ -29,7 +29,7 @@ No AI-enhanced suggestion is a valid result. If enhancement cannot complete safe
 
 WordPress 7.1 provides `wp_ai_client_prompt()`, which returns `WP_AI_Client_Prompt_Builder` backed by the AI Client default provider registry. The builder supports system instructions, structured JSON responses, per-request HTTP options, text-generation support checks, and result or text generation.
 
-Intertexere will use:
+Intertexere uses:
 
 - `wp_ai_client_prompt()` for provider-neutral prompt construction;
 - `using_system_instruction()` to isolate product rules from untrusted content;
@@ -47,15 +47,15 @@ WordPress 7.1 does not provide a natural WordPress streaming contract suitable f
 
 ## Invocation and service architecture
 
-The production architecture will add a reusable server-side AI enhancement service behind a small AI Client adapter. The adapter is the only Intertexere component that invokes `WP_AI_Client_Prompt_Builder`. Tests inject a deterministic fake adapter and never use live providers, credentials, or paid network calls.
+The production architecture contains a reusable server-side AI enhancement service behind a small AI Client adapter. The adapter is the only Intertexere component that invokes `WP_AI_Client_Prompt_Builder`. Tests inject a deterministic fake adapter and never use live providers, credentials, or paid network calls.
 
-The existing editor integration will call a new authenticated custom REST endpoint:
+The existing editor integration calls the authenticated custom REST endpoint:
 
 `POST /wp-json/intertexere/v1/editor-suggestions/ai-enhance`
 
 This remains a read-only operation. POST keeps unsaved draft text and candidate identifiers out of a URL. The endpoint reuses the hardened 0.3 authentication, capability, raw-body, decoded-payload, validation, and request-ownership patterns.
 
-0.4 will not expose enhancement as an Ability and will not call `using_abilities()`. WordPress 7.1 Ability REST execution requires a read-only ability to use GET with URL-encoded input, which is unsuitable for an unsaved draft. The model also requires no tools: granting Ability access would add prompt-injection and side-effect surface without helping the constrained ranking task.
+0.4 does not expose enhancement as an Ability and does not call `using_abilities()`. WordPress 7.1 Ability REST execution requires a read-only ability to use GET with URL-encoded input, which is unsuitable for an unsaved draft. The model also requires no tools: granting Ability access would add prompt-injection and side-effect surface without helping the constrained ranking task.
 
 The client submits the current canonical 0.3 draft snapshot, current deterministic `analysis_id`, and an ordered requested subset of target post IDs. The client does not submit authoritative target titles, URLs, excerpts, eligibility, or scores.
 
@@ -78,6 +78,8 @@ AI enhancement has two gates:
 - an explicit per-analysis editor action.
 
 The preference uses the existing Intertexere settings option. It does not add a table, migration, or schema version. Its administration text must explain that explicitly submitted unsaved draft excerpts and bounded candidate context may leave the site through a WordPress-configured provider.
+
+The administration page saves content eligibility and AI enablement as separate, explicitly marked settings scopes. Each focused update is merged with the current complete settings structure, so an AI-only save preserves eligible post types and an eligibility save preserves the AI preference. Rebuild detection compares only the sanitized eligibility signature. An AI-only, unrelated, equivalent, or no-op option change queues no index or graph rebuild; a real eligible-post-type change still queues both required rebuilds.
 
 When the preference is enabled, the service performs the WordPress AI support and configured-model checks. The editor represents these states distinctly:
 
@@ -293,7 +295,7 @@ The CI matrix remains WordPress 7.1 with PHP 7.4, 8.1, and 8.3, PHP syntax valid
 
 ## Persistence and schema
 
-0.4 requires no persistent derived schema and does not change schema version 2. The only planned stored value is the intentional site-wide enable preference in the existing settings option. It contains no draft, prompt, response, score, explanation, provider credential, or candidate content.
+0.4 requires no persistent derived schema and does not change schema version 2. The only new stored value is the intentional site-wide enable preference in the existing settings option. It contains no draft, prompt, response, score, explanation, provider credential, or candidate content.
 
 If implementation reveals a need for persistent AI data or another table, work stops for a separately reviewed architecture and privacy decision. It is not authorized by this plan.
 
@@ -303,7 +305,7 @@ If implementation reveals a need for persistent AI data or another table, work s
 
 0.4 does not implement site audits, orphan or under-linked detection, broken-link repair, bulk workflows, persistent feedback, embeddings, vector search, or machine-learning preference storage. AI cannot select destinations outside the 0.3 deterministic candidate set.
 
-## Known planning limitations
+## Known limitations
 
 Provider quality, latency, cost, retention, and model availability vary outside Intertexere's control. Structured response support is still validated at runtime because provider plugins and configured models may differ. Intertexere can guarantee its input bounds, validation, fallback, and non-mutation behavior, but it cannot guarantee that a provider will produce a useful enhancement.
 

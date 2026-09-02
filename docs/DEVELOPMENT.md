@@ -126,7 +126,7 @@ The PHP integration matrix remains WordPress 7.1 with PHP 7.4, 8.1, and 8.3. The
 
 ### 0.4 AI test boundary
 
-Milestone 0.4 production code must call the WordPress AI Client through a narrow injectable adapter. Unit, integration, and browser tests use a deterministic fake adapter and must not require a live provider, paid network call, connector credential, or GitHub Actions secret.
+Milestone 0.4 production code calls the WordPress AI Client through a narrow injectable adapter. Unit, integration, and browser tests use a deterministic fake adapter and do not require a live provider, paid network call, connector credential, or GitHub Actions secret.
 
 Tests must keep provider latency separate from local preparation and validation measurements. They must exercise unavailable, unconfigured, timeout, rate-limit, malformed-output, stale-request, prompt-injection, privacy, and no-mutation paths while retaining the complete 0.1 through 0.3 regression suites.
 

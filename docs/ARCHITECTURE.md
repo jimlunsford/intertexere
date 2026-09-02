@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1, 0.2, and 0.3 are complete. Milestone 0.4 is planned and not implemented.
+Milestones 0.1 through 0.4 are complete.
 
 ## Product Identity
 
@@ -88,11 +88,11 @@ The detailed contract is in [Read-Only Editor Suggestions](EDITOR-SUGGESTIONS.md
 
 ### Stage 2: contextual AI evaluation
 
-Milestone 0.4 is planned as an optional server-side overlay on the current deterministic result. After the user explicitly requests enhancement, the server reruns and validates the current 0.3 analysis, builds a bounded prompt from at most eight validated candidates, invokes the WordPress AI Client, and validates structured output before returning it to the existing sidebar.
+Milestone 0.4 implements an optional server-side overlay on the current deterministic result. After the user explicitly requests enhancement, the server reruns and validates the current 0.3 analysis, builds a bounded prompt from at most eight validated candidates, invokes the WordPress AI Client, and validates structured output before returning it to the existing sidebar.
 
 The AI layer may filter and rerank supplied candidates, produce a bounded advisory explanation, and select exact existing anchor text. It cannot invent a destination, bypass a deterministic exclusion, overwrite the deterministic score, or manufacture prose. AI failure preserves the deterministic suggestions.
 
-The detailed planning contract is in [WordPress-Native AI Integration](AI-INTEGRATION.md), with completion requirements in [0.4 Acceptance Criteria](ACCEPTANCE-0.4.md).
+The detailed implementation contract is in [WordPress-Native AI Integration](AI-INTEGRATION.md), with completion requirements in [0.4 Acceptance Criteria](ACCEPTANCE-0.4.md).
 
 ### Stage 3: explicit editorial action
 
@@ -167,6 +167,8 @@ Prompts, responses, drafts, explanations, and AI rankings remain session-only. 0
 
 The index and graph support full rebuilds. Readers use only their stable active generations while replacements are built. 0.3 suggestion analysis reads these active generations and cannot weaken their incremental or cutover guarantees.
 
+Settings-change rebuild detection compares only sanitized content-eligibility fields. Changing `enable_ai_enhancement`, an unrelated future preference, or an equivalent value does not queue derived rebuilds. Changing eligible post types still queues both index and graph rebuilds. Focused settings forms merge their validated changes into the current complete settings structure so unrelated values cannot be silently reset.
+
 A failed or interrupted rebuild must not damage WordPress content. If derived tables are deleted, Intertexere can reconstruct them from current WordPress content. 0.3 has no additional persistent schema to recover.
 
 ## Deactivation and Removal
@@ -194,7 +196,7 @@ Intertexere follows normal WordPress security boundaries:
 2. Content indexing, complete in 0.1
 3. Internal-link graph, complete in 0.2
 4. Read-only deterministic editor suggestions, complete in 0.3
-5. AI Client and Connectors integration, planned for 0.4
+5. AI Client and Connectors integration, complete in 0.4
 6. Explicit one-click link insertion, planned for 0.5
 7. Site-level link audit and maintenance tools, planned for 0.6
 

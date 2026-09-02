@@ -8,6 +8,7 @@
     <testsuites>
         <testsuite name="Intertexere">
             <directory suffix=".php">tests</directory>
+            <exclude>tests/e2e</exclude>
         </testsuite>
     </testsuites>
 </phpunit>
