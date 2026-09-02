@@ -20,6 +20,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 
 	public function tear_down(): void {
 		remove_all_actions( 'intertexere_editor_suggestions_before_target' );
+		remove_all_filters( 'intertexere_is_post_eligible' );
 		remove_all_filters( 'pre_http_request' );
 		parent::tear_down();
 	}
@@ -176,6 +177,8 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		wp_set_post_categories( $target, array( $category, $second_category ) );
 		Indexer::refresh_post( $target );
 		$payload = $this->payload( 0, 'Completely different draft title', array( $this->paragraph( 'This draft contains enough unrelated meaningful words for analysis.' ) ) );
+		$payload['taxonomies'] = array( 'category' => array( $category ) );
+		$this->assertSame( array(), Editor_Suggestions::analyze( $payload )['suggestions'] );
 		$payload['taxonomies'] = array( 'category' => array( $category, $second_category ) );
 		$response = Editor_Suggestions::analyze( $payload );
 
@@ -222,6 +225,12 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$target = $this->create_target( 'Current Eligibility Destination' );
 		$payload = $this->payload( 0, 'Current Eligibility Destination', array( $this->paragraph( 'Current eligibility destination has enough supporting words.' ) ) );
 		$this->assertCount( 1, Editor_Suggestions::analyze( $payload )['suggestions'] );
+		$exclude_target = static function ( bool $eligible, \WP_Post $post ) use ( $target ): bool {
+			return $post->ID === $target ? false : $eligible;
+		};
+		add_filter( 'intertexere_is_post_eligible', $exclude_target, 10, 2 );
+		$this->assertSame( array(), Editor_Suggestions::analyze( $payload )['suggestions'] );
+		remove_filter( 'intertexere_is_post_eligible', $exclude_target, 10 );
 
 		$changed = false;
 		add_action(
@@ -322,6 +331,51 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertSame( $before_index, (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::table_name() ) );
 		$this->assertSame( $before_graph, (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::link_edges_table_name() ) );
 		$this->assertSame( array(), get_posts( array( 'post_type' => 'revision', 'post_parent' => $target ) ) );
+	}
+
+	public function test_graph_retrieval_uses_inbound_and_shared_targets_without_duplicate_candidates(): void {
+		$source = $this->create_target( 'Current graph source', 'Current source content.' );
+		$shared = $this->create_target( 'Shared graph destination', 'Shared destination content.' );
+		$candidate = $this->create_target(
+			'Geology reference location',
+			'<a href="' . esc_url( get_permalink( $source ) ) . '">One</a>'
+			. '<a href="' . esc_url( get_permalink( $shared ) ) . '">Two</a>'
+		);
+		Link_Graph::refresh_post( $candidate );
+		Indexer::refresh_post( $candidate );
+
+		$markup = '<!-- wp:paragraph --><p>Astronomy vocabulary remains deliberately separate. '
+			. '<a href="' . esc_url( get_permalink( $shared ) ) . '">Existing destination</a></p><!-- /wp:paragraph -->';
+		$validated = Editor_Suggestions::validate_payload(
+			$this->payload( $source, 'Astronomy lexical draft', array( $this->unit( 'graph', 'core/paragraph', $markup ) ) )
+		);
+		$parsed = $this->call_private( 'parse_units', array( $validated ) );
+		$draft_text = $validated['title'] . ' ' . implode( ' ', wp_list_pluck( $parsed['text_units'], 'text' ) );
+		$terms = Editor_Suggestions::normalize_terms( $draft_text );
+		$phrases = Editor_Suggestions::extract_phrases( $validated['title'], $parsed['text_units'] );
+		$retrieved = $this->call_private( 'retrieve_candidate_ids', array( $validated, $terms, $phrases, $parsed ) );
+
+		$this->assertContains( $candidate, $retrieved['ids'] );
+		$this->assertSame( 1, array_count_values( $retrieved['ids'] )[ $candidate ] );
+
+		delete_option( Schema::GRAPH_GENERATION_OPTION );
+		$without_graph = $this->call_private( 'retrieve_candidate_ids', array( $validated, $terms, $phrases, $parsed ) );
+		$this->assertNotContains( $candidate, $without_graph['ids'] );
+	}
+
+	public function test_equal_scores_sort_by_current_title_then_post_id(): void {
+		$zulu = $this->create_target( 'Zulu Stable Topic', 'Stable topic material supports deterministic ordering.' );
+		$alpha_first = $this->create_target( 'Alpha Stable Topic', 'Stable topic material supports deterministic ordering.' );
+		$alpha_second = $this->create_target( 'Alpha Stable Topic', 'Stable topic material supports deterministic ordering.' );
+		$response = Editor_Suggestions::analyze(
+			$this->payload( 0, 'Stable Topic', array( $this->paragraph( 'Stable topic material supports deterministic ordering.' ) ) )
+		);
+
+		$this->assertSame(
+			array( $alpha_first, $alpha_second, $zulu ),
+			array_slice( wp_list_pluck( $response['suggestions'], 'target_post_id' ), 0, 3 )
+		);
+		$this->assertSame( $response['suggestions'][0]['score'], $response['suggestions'][2]['score'] );
 	}
 
 	public function test_active_generations_only_are_read_and_change_analysis_identity(): void {
