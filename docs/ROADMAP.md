@@ -64,7 +64,7 @@ Acceptance direction:
 
 ## 0.3 Read-Only Editor Suggestions
 
-Status: planned and not implemented. See [Read-Only Editor Suggestions](EDITOR-SUGGESTIONS.md) and [0.3 Acceptance Criteria](ACCEPTANCE-0.3.md).
+Status: complete. See [Read-Only Editor Suggestions](EDITOR-SUGGESTIONS.md) and [0.3 Acceptance Criteria](ACCEPTANCE-0.3.md).
 
 Goal: bring useful internal-link opportunities into the Block Editor without changing the draft.
 

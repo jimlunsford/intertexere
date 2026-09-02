@@ -21,8 +21,13 @@ WordPress 7.1 always uses an iframe for the post editor canvas. Intertexere's 0.
 - `PluginSidebar`: https://developer.wordpress.org/block-editor/reference-guides/slotfills/plugin-sidebar/
 - `core/editor` data: https://developer.wordpress.org/block-editor/reference-guides/data/data-core-editor/
 - `core/block-editor` data: https://developer.wordpress.org/block-editor/reference-guides/data/data-core-block-editor/
+- `@wordpress/scripts`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-scripts/
+- `@wordpress/e2e-test-utils-playwright`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-e2e-test-utils-playwright/
+- `@wordpress/env`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/
 
 Editor UI scripts belong on `enqueue_block_editor_assets`. Current unsaved post attributes come from `core/editor`, and the ordered block tree and client IDs come from `core/block-editor`. Inner-block controllers such as synced patterns and template parts own content in another entity; 0.3 treats them as opaque rather than silently analyzing or rendering external content as part of the current post.
+
+The 0.3 implementation pins the current WordPress build and Playwright tooling, builds a dependency manifest for Core-provided packages, and verifies the integration against an actual WordPress 7.1 iframe editor. The production code uses editor data stores and native SlotFill APIs only. It does not query the canvas DOM or manipulate the iframe.
 
 ## Abilities API
 

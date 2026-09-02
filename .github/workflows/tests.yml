@@ -52,3 +52,59 @@ jobs:
 
       - name: Run integration tests
         run: composer test
+
+  javascript-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+
+      - name: Install pinned dependencies
+        run: npm ci
+
+      - name: Lint JavaScript
+        run: npm run lint:js
+
+      - name: Run JavaScript unit and component tests
+        run: npm run test:js
+
+      - name: Verify production editor build
+        run: |
+          npm run build
+          git diff --exit-code -- build
+
+  editor-e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+
+      - name: Install pinned dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build editor assets
+        run: npm run build
+
+      - name: Run WordPress 7.1 Block Editor tests
+        run: npm run test:e2e
+
+      - name: Stop WordPress environment
+        if: always()
+        run: npm run wp-env:stop

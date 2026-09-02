@@ -112,6 +112,18 @@ At minimum, relevant development should include appropriate combinations of:
 
 A passing syntax check does not prove the feature works.
 
+### 0.3 JavaScript and editor test baseline
+
+Milestone 0.3 pins Node.js 22.13.0 and all WordPress, Jest, and Playwright development packages through `package-lock.json`. Use:
+
+- `npm ci` for a reproducible dependency install;
+- `npm run lint:js` for WordPress JavaScript lint rules;
+- `npm run test:js` for Jest unit and component tests;
+- `npm run build` for the committed production editor bundle;
+- `npm run test:e2e` for the actual WordPress 7.1 Block Editor Playwright suite.
+
+The PHP integration matrix remains WordPress 7.1 with PHP 7.4, 8.1, and 8.3. The browser suite uses `@wordpress/env` with WordPress 7.1 and Chromium. A mocked DOM test is not a substitute for the browser job.
+
 ## 10. Content Mutation Requires Stronger Testing
 
 Any change that can modify post content must test at least:

@@ -1,0 +1,35 @@
+{
+  "name": "intertexere",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Read-only internal-link suggestions for the WordPress Block Editor.",
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10.2.3"
+  },
+  "scripts": {
+    "build": "wp-scripts build src/editor/index.js --output-path=build/editor",
+    "lint:js": "wp-scripts lint-js src tests/js tests/e2e playwright.config.js jest.config.js",
+    "test:js": "wp-scripts test-unit-js --config jest.config.js",
+    "wp-env:start": "wp-env start",
+    "wp-env:stop": "wp-env stop",
+    "test:e2e": "wp-scripts test-playwright --config playwright.config.js"
+  },
+  "devDependencies": {
+	"@playwright/test": "1.62.1",
+	"@testing-library/jest-dom": "7.0.1",
+	"@testing-library/react": "16.3.3",
+	"@wordpress/api-fetch": "7.54.0",
+	"@wordpress/blocks": "15.27.0",
+	"@wordpress/components": "40.0.0",
+	"@wordpress/data": "10.54.0",
+	"@wordpress/e2e-test-utils-playwright": "1.54.0",
+	"@wordpress/editor": "14.54.0",
+	"@wordpress/element": "8.6.0",
+	"@wordpress/env": "11.14.0",
+	"@wordpress/i18n": "6.27.0",
+	"@wordpress/icons": "15.5.0",
+	"@wordpress/plugins": "7.54.0",
+	"@wordpress/scripts": "34.2.0"
+  }
+}

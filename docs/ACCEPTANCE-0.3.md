@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the completion contract for milestone 0.3, Read-Only Editor Suggestions. The milestone is planned and not implemented.
+This document defines the completion contract for milestone 0.3, Read-Only Editor Suggestions. The milestone is implemented and remains subject to independent review before merge.
 
 ## Scope gate
 

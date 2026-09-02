@@ -32,9 +32,11 @@ final class Plugin {
 		add_action( Indexer::REBUILD_HOOK, array( Indexer::class, 'rebuild' ) );
 		add_action( Link_Graph::REBUILD_HOOK, array( Link_Graph::class, 'rebuild' ) );
 		add_action( 'update_option_' . Settings::OPTION, array( self::class, 'settings_changed' ), 10, 2 );
+		add_action( 'rest_api_init', array( Editor_REST::class, 'register_routes' ) );
 
 		if ( is_admin() ) {
 			Admin::register_hooks();
+			Editor_Assets::register_hooks();
 		}
 	}
 

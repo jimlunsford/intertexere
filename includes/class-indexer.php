@@ -303,6 +303,44 @@ final class Indexer {
 	}
 
 	/**
+	 * Return active derived records for a bounded list of WordPress post IDs.
+	 *
+	 * @param int[] $post_ids Candidate post IDs.
+	 * @return array<int, array<string, mixed>> Records keyed by post ID.
+	 */
+	public static function get_records( array $post_ids ): array {
+		global $wpdb;
+
+		$post_ids = array_slice( array_values( array_unique( array_filter( array_map( 'absint', $post_ids ) ) ) ), 0, 100 );
+		if ( empty( $post_ids ) ) {
+			return array();
+		}
+
+		$generation = (string) get_option( Schema::GENERATION_OPTION, '' );
+		if ( '' === $generation ) {
+			return array();
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $post_ids ), '%d' ) );
+		$args         = array_merge( array( $generation, self::TOMBSTONE_STATUS ), $post_ids );
+		$rows         = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . Schema::table_name()
+				. " WHERE generation = %s AND post_status <> %s AND post_id IN ({$placeholders})",
+				$args
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		$records = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$records[ (int) $row['post_id'] ] = $row;
+		}
+
+		return $records;
+	}
+
+	/**
 	 * Build one isolated generation.
 	 *
 	 * @throws \RuntimeException When a database write fails.
