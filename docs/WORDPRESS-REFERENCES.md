@@ -57,10 +57,31 @@ The WordPress 7.1 Abilities REST controller requires a read-only ability to exec
 
 - Introducing the AI Client in WordPress 7.0: https://make.wordpress.org/core/2026/03/24/introducing-the-ai-client-in-wordpress-7-0/
 - What's coming to the AI Client in WordPress 7.1: https://make.wordpress.org/ai/2026/06/19/whats-coming-to-the-ai-client-in-wp-7-1/
+- `WP_AI_Client_Prompt_Builder`: https://developer.wordpress.org/reference/classes/wp_ai_client_prompt_builder/
+- AI Client builder error mapping: https://developer.wordpress.org/reference/classes/wp_ai_client_prompt_builder/exception_to_wp_error/
+- WordPress 7.1 AI Client bootstrap source: https://github.com/WordPress/wordpress-develop/blob/7.1/src/wp-includes/ai-client.php
+- WordPress 7.1 prompt builder source: https://github.com/WordPress/wordpress-develop/blob/7.1/src/wp-includes/ai-client/class-wp-ai-client-prompt-builder.php
+
+`wp_ai_client_prompt()` returns a WordPress prompt builder backed by the AI Client default provider registry. For 0.4, the relevant verified methods are `using_system_instruction()`, `using_max_tokens()`, `using_request_options()`, `as_json_response()`, `is_supported_for_text_generation()`, and `generate_text_result()`.
+
+The builder defaults to a 30-second request timeout and accepts per-prompt request options. The 0.4 plan sets a 20-second provider timeout for the explicit interactive action. WordPress maps prevention, invalid arguments, token limits, network failures, client errors including HTTP 429, and upstream errors to `WP_Error`; Intertexere uses safe product-level failure states and does not depend on provider-specific messages.
+
+Actual WordPress 7.1 runtime verification with no configured AI provider returned `wp_supports_ai() === true` while `is_supported_for_text_generation() === false`, and generation failed because no model supported text generation for the prompt. With `WP_AI_SUPPORT` disabled, `wp_supports_ai()` and builder support were false and generation returned `prompt_prevented`. Therefore `wp_supports_ai()` is a preliminary environment check, not configured-model detection. The fully constructed builder support check is authoritative immediately before invocation.
+
+WordPress 7.1 does not expose a natural streaming path used by this milestone. 0.4 uses one bounded non-streaming structured response. Embeddings did not land as part of the WordPress 7.1 AI contract and are outside the milestone.
 
 ## Connectors API
 
 - Introducing the Connectors API in WordPress 7.0: https://make.wordpress.org/core/2026/03/18/introducing-the-connectors-api-in-wordpress-7-0/
+- WordPress 7.1 connector registry source: https://github.com/WordPress/wordpress-develop/blob/7.1/src/wp-includes/class-wp-connector-registry.php
+
+WordPress Connectors provides Settings > Connectors, provider registration, credential fields, and connector discovery functions. The WordPress AI Client default registry discovers compatible provider plugins through that infrastructure. A registered connector is not proof that credentials are valid or that a compatible model is configured.
+
+Connector credential resolution supports WordPress-owned environment variable, PHP constant, and database sources. Database credentials are masked in the WordPress 7.1 settings UI but are not encrypted at rest. Intertexere does not store, mirror, log, or expose provider credentials and does not add provider-specific key controls.
+
+### 0.4 Abilities decision
+
+The 0.4 enhancement operation is not registered as an Ability, and the model is not given `using_abilities()` tools. The editor payload contains unsaved draft content, so the WordPress 7.1 read-only Ability GET transport remains unsuitable. The constrained evaluation also needs no tools. Avoiding model-accessible Abilities reduces prompt-injection and unintended side-effect surface while preserving the reusable PHP service boundary.
 
 ## Internal Link Graph
 

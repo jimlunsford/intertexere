@@ -88,9 +88,11 @@ The detailed contract is in [Read-Only Editor Suggestions](EDITOR-SUGGESTIONS.md
 
 ### Stage 2: contextual AI evaluation
 
-Beginning no earlier than 0.4, the AI layer may receive the current draft plus the constrained deterministic candidate set and evaluate contextual relevance, useful depth, anchor quality, duplicate risk, and over-linking risk.
+Milestone 0.4 is planned as an optional server-side overlay on the current deterministic result. After the user explicitly requests enhancement, the server reruns and validates the current 0.3 analysis, builds a bounded prompt from at most eight validated candidates, invokes the WordPress AI Client, and validates structured output before returning it to the existing sidebar.
 
-The AI layer must be allowed to return no suggestion and cannot invent a destination outside deterministic validation.
+The AI layer may filter and rerank supplied candidates, produce a bounded advisory explanation, and select exact existing anchor text. It cannot invent a destination, bypass a deterministic exclusion, overwrite the deterministic score, or manufacture prose. AI failure preserves the deterministic suggestions.
+
+The detailed planning contract is in [WordPress-Native AI Integration](AI-INTEGRATION.md), with completion requirements in [0.4 Acceptance Criteria](ACCEPTANCE-0.4.md).
 
 ### Stage 3: explicit editorial action
 
@@ -135,9 +137,11 @@ Dismissal in 0.3 is session-only. Persistent feedback, recommendation learning, 
 
 ## AI Boundary
 
-AI begins no earlier than 0.4 and is used for contextual judgment, not as a replacement for WordPress state or deterministic validation.
+AI begins in 0.4 and is used for optional contextual judgment, not as a replacement for WordPress state or deterministic validation. Production requests use `wp_ai_client_prompt()` and WordPress's default AI provider registry. Provider configuration and credentials remain owned by WordPress Connectors. Intertexere stores no provider keys and hard-codes no commercial model.
 
-AI output must be treated as untrusted input. The plugin must validate target existence and eligibility, current internal URL, current draft anchor, duplicate state, and user permission at any future mutation boundary.
+The 0.4 service is called through an authenticated custom REST POST route because unsaved draft text does not belong in an Ability's URL-encoded GET input. The model receives no Abilities, tools, site browsing, or arbitrary content-retrieval access.
+
+AI output is untrusted input. Intertexere validates candidate membership, target existence and eligibility, current WordPress metadata, current draft identity, active generations, duplicate and already-linked state, explanation bounds, and exact existing anchor text. A future mutation boundary must repeat all relevant validation.
 
 AI failure must degrade to deterministic or no suggestions, not editor failure.
 
@@ -155,7 +159,9 @@ Intertexere must not silently rewrite prose.
 
 Milestone 0.3 makes no external requests and does not persist unsaved draft text in Intertexere tables, options, or transients.
 
-Future AI work should minimize external content through local candidate reduction and only the context and candidate metadata needed for the reviewed task. Provider credentials should use WordPress-native connector infrastructure where supported.
+Milestone 0.4 is disabled by default and requires an explicit editor action after deterministic analysis. Its disclosure identifies that bounded unsaved draft excerpts and candidate context may leave the site through the provider configured in WordPress. No request runs merely because the sidebar is open or the user is typing.
+
+Prompts, responses, drafts, explanations, and AI rankings remain session-only. 0.4 adds no persistent AI data and no schema migration. The complete privacy and payload contract is in [WordPress-Native AI Integration](AI-INTEGRATION.md).
 
 ## Rebuild and Recovery
 

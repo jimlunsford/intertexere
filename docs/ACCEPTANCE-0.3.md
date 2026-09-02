@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the completion contract for milestone 0.3, Read-Only Editor Suggestions. The milestone is implemented and remains subject to independent review before merge.
+This document records the completion contract for milestone 0.3, Read-Only Editor Suggestions. The independently reviewed implementation was merged through PR #8 and is complete.
 
 ## Scope gate
 
