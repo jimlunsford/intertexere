@@ -76,7 +76,8 @@ final class Insertion_Validation {
 			$anchor_end,
 			$request['validated_draft']['base_url'],
 			$request['validated_draft']['post_id'],
-			$request['target_post_id']
+			$request['target_post_id'],
+			$target_before['canonical_permalink']
 		);
 		if ( 'already-linked' === $range_state ) {
 			return self::error( 'intertexere_insertion_already_linked', 'This exact phrase already links to the current target.', 409 );
@@ -85,7 +86,7 @@ final class Insertion_Validation {
 			return self::error( 'intertexere_insertion_link_overlap', 'The exact phrase overlaps an existing link.', 409 );
 		}
 
-		if ( self::draft_has_target( $request['draft_links'], $request['validated_draft'], $request['target_post_id'] ) ) {
+		if ( self::draft_has_target( $request['draft_links'], $request['validated_draft'], $request['target_post_id'], $target_before['canonical_permalink'] ) ) {
 			return self::error( 'intertexere_insertion_duplicate', 'This draft already contains a link to that target.', 409 );
 		}
 
@@ -324,10 +325,9 @@ final class Insertion_Validation {
 		);
 	}
 
-	private static function draft_has_target( array $links, array $draft, int $target_post_id ): bool {
+	private static function draft_has_target( array $links, array $draft, int $target_post_id, string $target_permalink ): bool {
 		foreach ( $links as $href ) {
-			$resolved = Link_Resolver::resolve_from_base( $href, $draft['base_url'], $draft['post_id'] );
-			if ( null !== $resolved && (int) $resolved['target_post_id'] === $target_post_id ) {
+			if ( self::reference_targets_post( $href, $draft['base_url'], $draft['post_id'], $target_post_id, $target_permalink ) ) {
 				return true;
 			}
 		}
@@ -343,7 +343,7 @@ final class Insertion_Validation {
 			&& ( $location['start'] ?? null ) === $anchor_start;
 	}
 
-	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id ): string {
+	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink ): string {
 		if ( ! preg_match_all( '#<a\b[^>]*>(.*?)</a>#is', $html, $matches, PREG_OFFSET_CAPTURE ) ) {
 			return 'clear';
 		}
@@ -364,15 +364,27 @@ final class Insertion_Validation {
 
 			$processor = new \WP_HTML_Tag_Processor( $match[0] );
 			$href      = $processor->next_tag( 'A' ) ? $processor->get_attribute( 'href' ) : null;
-			$resolved  = is_string( $href ) ? Link_Resolver::resolve_from_base( $href, $base_url, $source_post_id ) : null;
-			if ( $start === $link_start && $end === $link_end && null !== $resolved
-				&& (int) $resolved['target_post_id'] === $target_post_id ) {
+			if ( $start === $link_start && $end === $link_end && is_string( $href )
+				&& self::reference_targets_post( $href, $base_url, $source_post_id, $target_post_id, $target_permalink ) ) {
 				return 'already-linked';
 			}
 			return 'overlap';
 		}
 
 		return 'clear';
+	}
+
+	private static function reference_targets_post( string $href, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink ): bool {
+		$resolved = Link_Resolver::resolve_from_base( $href, $base_url, $source_post_id );
+		if ( null === $resolved ) {
+			return false;
+		}
+		if ( null !== $resolved['target_post_id'] ) {
+			return (int) $resolved['target_post_id'] === $target_post_id;
+		}
+
+		$canonical = Link_Resolver::normalize_reference( $target_permalink, $base_url );
+		return null !== $canonical && hash_equals( $canonical, $resolved['normalized_url'] );
 	}
 
 	private static function direct_content_html( string $block_name, string $inner_html ): ?string {

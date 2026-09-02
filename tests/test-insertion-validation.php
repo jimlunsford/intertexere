@@ -176,6 +176,8 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		);
 		$this->refresh_analysis();
 		$request = $this->request_payload();
+		$request['source_kind'] = 'ai';
+		$request['anchor']['unit_key'] = 'u1';
 		$request['anchor']['occurrence'] = 1;
 		$result = Insertion_Validation::validate( $request );
 		$this->assertIsArray( $result );
@@ -187,7 +189,7 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$cases = array(
 			'unpublished' => array( 'post_status' => 'draft' ),
 			'password'    => array( 'post_password' => 'secret' ),
-			'post type'   => array( 'post_type' => 'page' ),
+			'post type'   => array( 'post_type' => 'attachment' ),
 		);
 		foreach ( $cases as $label => $change ) {
 			$this->restore_target();

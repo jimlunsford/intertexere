@@ -38,7 +38,7 @@ class Intertexere_Insertion_REST_Test extends WP_UnitTestCase {
 		$draft = array(
 			'post_id'    => $this->source_id,
 			'post_type'  => 'post',
-			'title'      => 'Unsaved REST insertion source',
+				'title'      => 'REST Insertion Target',
 			'taxonomies' => array(),
 			'units'      => array(
 				array(
