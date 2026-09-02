@@ -24,6 +24,7 @@ WordPress 7.1 always uses an iframe for the post editor canvas. Intertexere's 0.
 - `@wordpress/scripts`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-scripts/
 - `@wordpress/e2e-test-utils-playwright`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-e2e-test-utils-playwright/
 - `@wordpress/env`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/
+- `@wordpress/rich-text`: https://developer.wordpress.org/block-editor/reference-guides/packages/packages-rich-text/
 - Nested blocks and `InnerBlocks`: https://developer.wordpress.org/block-editor/how-to-guides/block-tutorial/nested-blocks-inner-blocks/
 - Static and dynamic block rendering: https://developer.wordpress.org/block-editor/getting-started/fundamentals/static-dynamic-rendering/
 - Core Group block: https://developer.wordpress.org/block-editor/reference-guides/core-blocks/core-blocks-design/core-block-group/
@@ -32,6 +33,16 @@ WordPress 7.1 always uses an iframe for the post editor canvas. Intertexere's 0.
 Editor UI scripts belong on `enqueue_block_editor_assets`. Current unsaved post attributes come from `core/editor`, and the ordered block tree and client IDs come from `core/block-editor`. `InnerBlocks` alone does not establish that a parent is safe for literal analysis: custom blocks can nest arbitrary children, and dynamic or controller blocks can expose editor descendants whose front-end identity comes from another query or entity. The WordPress 7.1 implementation therefore traverses only the reviewed Core structural allowlist recorded in `EDITOR-SUGGESTIONS.md`; synced blocks, template parts, navigation, Query, unknown Core blocks, and custom parents remain opaque.
 
 The 0.3 implementation pins the current WordPress build and Playwright tooling, builds a dependency manifest for Core-provided packages, and verifies the integration against an actual WordPress 7.1 iframe editor. The production code uses editor data stores and native SlotFill APIs only. It does not query the canvas DOM or manipulate the iframe.
+
+### 0.5 RichText mutation decision
+
+The pinned WordPress 7.1 packages expose `getBlock()` and `updateBlockAttributes()` through `core/block-editor`, and `create()`, `applyFormat()`, `toHTMLString()`, and `RichTextData` through `@wordpress/rich-text`. WordPress 7.1 Core registers `core/link` as an `a` format whose `url` attribute serializes to `href`: https://github.com/WordPress/WordPress/blob/7.1/wp-includes/js/dist/format-library.js
+
+Runtime verification against the pinned packages confirmed that applying `core/link` across an exact RichText range preserves compatible strong, emphasis, color, entity, Unicode, emoji, and mixed inline formatting. The planned mutation reads the current allowed block, parses its direct `content` attribute, recomputes the exact JavaScript UTF-16 range, applies the link format, verifies invariants, and makes one `updateBlockAttributes()` dispatch. It does not manipulate the WordPress 7.1 iframe DOM.
+
+The initial reviewed allowlist is `core/paragraph`, `core/heading`, and `core/list-item`. Each has one direct RichText `content` attribute in WordPress 7.1. Pullquote, verse, preformatted, table, and caption-bearing blocks remain read-only because their multiple attributes, nested cell paths, entity behavior, or whitespace semantics require separate mutation proof.
+
+Core editor history receives persistent block-attribute changes through the normal entity-editing flow. The deprecated private `createUndoLevel` action is not part of the plan. One successful insertion uses one distinct `updateBlockAttributes()` dispatch, and actual Undo and Redo behavior must be verified in the WordPress 7.1 browser suite.
 
 ## REST dispatch ordering
 

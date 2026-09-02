@@ -303,6 +303,8 @@ If implementation reveals a need for persistent AI data or another table, work s
 
 0.4 produces read-only, session-scoped advisory output. Its structured anchor evidence is designed so 0.5 can independently revalidate an explicitly approved location, but 0.4 performs no insertion and grants no mutation authority.
 
+The approved 0.5 plan does not expand the model prompt or expose target permalinks, block client IDs, tools, or Abilities to the model. An opaque AI unit key is mapped back to server-held deterministic location evidence, then the target and exact anchor pass the same insertion validation as a purely deterministic suggestion. AI keep, rank, explanation, and anchor output never authorize mutation. See [Explicit Link Insertion](LINK-INSERTION.md).
+
 0.4 does not implement site audits, orphan or under-linked detection, broken-link repair, bulk workflows, persistent feedback, embeddings, vector search, or machine-learning preference storage. AI cannot select destinations outside the 0.3 deterministic candidate set.
 
 ## Known limitations

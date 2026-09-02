@@ -132,6 +132,14 @@ Tests must keep provider latency separate from local preparation and validation 
 
 No implementation test may weaken the product contract by bypassing server-side deterministic candidate validation. A fake provider simulates only the WordPress AI Client boundary; it does not replace the current draft analyzer, candidate authority, target validation, or editor request-ownership behavior.
 
+### 0.5 insertion test boundary
+
+Milestone 0.5 is planned in [Explicit Link Insertion](LINK-INSERTION.md) and is not implemented. Its implementation must use the pinned WordPress 7.1 `core/block-editor` data store and `@wordpress/rich-text` behavior. Mocked RichText tests are supporting evidence only; the complete iframe-based WordPress 7.1 Playwright suite must prove the actual editor mutation, dirty state, Undo, Redo where supported, normal save, and plugin-independent saved link.
+
+The validation endpoint is read-only. Tests must prove zero post, revision, autosave, index, graph, option, transient, and schema mutation. Client tests must prove a second local state check after the server response and that late responses, navigation, draft edits, repeated clicks, analysis actions, and AI actions cannot mutate newer state.
+
+Implementation work belongs on `feature/0.5-link-insertion`. Planning documentation does not change the plugin version. The accepted implementation should move 0.4.0 to 0.5.0 only after the full acceptance contract is satisfied.
+
 ## 10. Content Mutation Requires Stronger Testing
 
 Any change that can modify post content must test at least:
@@ -210,7 +218,7 @@ Examples:
 - `Add content index schema`
 - `Track internal link edges`
 - `Add draft suggestion sidebar`
-- `Validate AI link targets before insertion`
+- `Validate link target before insertion`
 
 Avoid meaningless messages such as `update`, `changes`, or `fix stuff`.
 
