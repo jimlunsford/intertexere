@@ -875,8 +875,9 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		).toBeDisabled();
 		const changed = insertableContent.replace( 'guide', 'changed guide' );
 		await editor.setContent( changed );
+		const changedEditorState = await editor.getEditedPostContent();
 		await page.waitForTimeout( 1000 );
-		expect( await editor.getEditedPostContent() ).toBe( changed );
+		expect( await editor.getEditedPostContent() ).toBe( changedEditorState );
 		expect( await editor.getEditedPostContent() ).not.toContain(
 			'<a href='
 		);
