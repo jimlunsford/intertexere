@@ -11,7 +11,7 @@ import {
 	createRequestGate,
 	visibleSuggestions,
 } from './request-state';
-import { buildSnapshot } from './snapshot';
+import { buildSnapshot, clientHashInput, sha256 } from './snapshot';
 import { AnalysisBody } from './components';
 import './style.scss';
 
@@ -99,6 +99,7 @@ export function EditorSuggestionsSidebar() {
 		} ) );
 
 		try {
+			const draftHash = await sha256( clientHashInput( snapshot ) );
 			const response = await apiFetch( {
 				path: settings.route,
 				method: 'POST',
@@ -111,6 +112,14 @@ export function EditorSuggestionsSidebar() {
 				requestedIdentity !== identity.current
 			) {
 				return;
+			}
+			if ( response.draft_hash !== draftHash ) {
+				throw new Error(
+					__(
+						'Draft analysis returned for a different editor state.',
+						'intertexere'
+					)
+				);
 			}
 			const key = analysisCacheKey(
 				requestedIdentity,
