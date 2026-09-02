@@ -155,6 +155,54 @@ class Intertexere_Editor_REST_Test extends WP_UnitTestCase {
 		$this->assertSame( 0, $analysis_calls );
 	}
 
+	public function test_oversized_malformed_json_is_rejected_before_core_json_validation(): void {
+		wp_set_current_user( $this->administrator_id );
+		$analysis_calls = 0;
+		add_action(
+			'intertexere_editor_rest_before_analysis',
+			static function () use ( &$analysis_calls ): void {
+				++$analysis_calls;
+			}
+		);
+
+		// This body is intentionally malformed. If Core parses it before the
+		// transport guard, dispatch returns rest_invalid_json instead of 413.
+		$malformed_oversized = '{"post_id":0,"broken":"'
+			. str_repeat( 'x', Editor_Suggestions::MAX_PAYLOAD_BYTES );
+		$this->assertGreaterThan( Editor_Suggestions::MAX_PAYLOAD_BYTES, strlen( $malformed_oversized ) );
+
+		$request = $this->raw_request( $malformed_oversized );
+		$request->set_header( 'Content-Length', '1' );
+		$response = rest_get_server()->dispatch( $request );
+		$this->assertSame( 413, $response->get_status() );
+		$this->assertSame( 'intertexere_payload_too_large', $response->get_data()['code'] );
+		$this->assertSame( 0, $analysis_calls );
+
+		$malformed_small = rest_get_server()->dispatch( $this->raw_request( '{"post_id":0' ) );
+		$this->assertSame( 400, $malformed_small->get_status() );
+		$this->assertSame( 'rest_invalid_json', $malformed_small->get_data()['code'] );
+		$this->assertSame( 0, $analysis_calls );
+	}
+
+	public function test_raw_body_guard_leaves_unrelated_rest_routes_untouched(): void {
+		wp_set_current_user( $this->administrator_id );
+
+		$get = new WP_REST_Request( 'GET', '/wp/v2/types/post' );
+		$this->assertSame( 200, rest_get_server()->dispatch( $get )->get_status() );
+
+		$malformed_oversized = '{"title":"'
+			. str_repeat( 'x', Editor_Suggestions::MAX_PAYLOAD_BYTES );
+		$unrelated = new WP_REST_Request( 'POST', '/wp/v2/posts' );
+		$unrelated->set_header( 'Content-Type', 'application/json' );
+		$unrelated->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
+		$unrelated->set_header( 'Content-Length', '1' );
+		$unrelated->set_body( $malformed_oversized );
+
+		$response = rest_get_server()->dispatch( $unrelated );
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'rest_invalid_json', $response->get_data()['code'] );
+	}
+
 	public function test_rest_boundary_retains_unit_count_and_per_unit_limits(): void {
 		wp_set_current_user( $this->administrator_id );
 		$unit = $this->payload( 0 )['units'][0];

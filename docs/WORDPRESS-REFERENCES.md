@@ -33,6 +33,14 @@ Editor UI scripts belong on `enqueue_block_editor_assets`. Current unsaved post 
 
 The 0.3 implementation pins the current WordPress build and Playwright tooling, builds a dependency manifest for Core-provided packages, and verifies the integration against an actual WordPress 7.1 iframe editor. The production code uses editor data stores and native SlotFill APIs only. It does not query the canvas DOM or manipulate the iframe.
 
+## REST dispatch ordering
+
+- `WP_REST_Server::dispatch()`: https://developer.wordpress.org/reference/classes/wp_rest_server/dispatch/
+- `rest_pre_dispatch`: https://developer.wordpress.org/reference/hooks/rest_pre_dispatch/
+- `WP_REST_Request::has_valid_params()`: https://developer.wordpress.org/reference/classes/wp_rest_request/has_valid_params/
+
+WordPress 7.1 applies `rest_pre_dispatch` before route matching and before `has_valid_params()`. `has_valid_params()` begins by calling `parse_json_params()`, so a raw encoded-body limit placed only in a route permission callback is too late to prevent JSON parsing. Intertexere registers its exact-method-and-route transport guard at `rest_pre_dispatch` priority 5. An oversized malformed request returning Intertexere's 413 response instead of Core's `rest_invalid_json` response is the integration proof that the guard ran before JSON validation.
+
 ## Abilities API
 
 - Abilities API handbook: https://developer.wordpress.org/apis/abilities-api/

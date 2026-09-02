@@ -214,7 +214,7 @@ The REST route requires:
 
 The endpoint does not save a post, update metadata, write graph or index rows, execute blocks, or call an external service. POST is used only to keep an analysis payload out of the request URL.
 
-`Content-Length` is not trusted as the transport limit because it is advisory. The REST boundary measures the body stored by `WP_REST_Request` and returns 413 before calling `get_json_params()` or the analysis service when it exceeds 262,144 bytes. Decoded and structured service limits remain in place as defense in depth, so JSON escapes cannot shrink an oversized transport into an accepted request.
+`Content-Length` is not trusted as the transport limit because it is advisory. A priority-5 `rest_pre_dispatch` filter, registered during plugin boot and scoped exactly to `POST /intertexere/v1/editor-suggestions`, measures the body stored by `WP_REST_Request`. WordPress Core applies this filter before route matching and before `WP_REST_Request::has_valid_params()` calls `parse_json_params()`. The filter returns the existing 413 error when the body exceeds 262,144 bytes, so Core never parses a transport-rejected body. Permission-callback, endpoint-callback, decoded-payload, unit-count, and per-unit checks remain in place as defense in depth. Unrelated REST routes retain normal Core dispatch and JSON-validation behavior.
 
 ## Performance and caching
 

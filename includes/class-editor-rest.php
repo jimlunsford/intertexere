@@ -27,6 +27,33 @@ final class Editor_REST {
 	}
 
 	/**
+	 * Reject an oversized editor-analysis body before Core parses JSON.
+	 *
+	 * WP_REST_Server::dispatch() applies rest_pre_dispatch before route matching
+	 * and before WP_REST_Request::has_valid_params() calls parse_json_params().
+	 * Returning a WP_Error here short-circuits the dispatcher at the transport
+	 * boundary. Every other method and route retains normal Core behavior.
+	 *
+	 * @param mixed           $result  Earlier pre-dispatch result.
+	 * @param \WP_REST_Server  $server  REST server instance.
+	 * @param \WP_REST_Request $request Request being dispatched.
+	 * @return mixed|\WP_Error
+	 */
+	public static function enforce_raw_body_limit( $result, \WP_REST_Server $server, \WP_REST_Request $request ) {
+		if ( ! empty( $result ) ) {
+			return $result;
+		}
+
+		if ( 'POST' !== strtoupper( $request->get_method() )
+			|| '/' . self::NAMESPACE . self::ROUTE !== $request->get_route() ) {
+			return $result;
+		}
+
+		$transport = self::validate_transport_size( $request );
+		return is_wp_error( $transport ) ? $transport : $result;
+	}
+
+	/**
 	 * Require a REST nonce and the applicable source-edit capability.
 	 *
 	 * @return true|\WP_Error

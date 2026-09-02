@@ -82,7 +82,7 @@ The branch must contain no AI or external-provider calls, embeddings, vector dat
 
 ### API security and failure behavior
 
-- The endpoint is a read-only service exposed through authenticated REST POST for payload transport, with the actual raw body limited to 256 KiB before JSON parsing.
+- The endpoint is a read-only service exposed through authenticated REST POST for payload transport, with a route-scoped `rest_pre_dispatch` guard limiting the actual raw body to 256 KiB before Core parameter validation parses JSON.
 - Same-origin cookie authentication and a valid WordPress REST nonce are required.
 - Existing sources require `edit_post`; new sources require the applicable edit capability for a supported post type.
 - Post ID, post type, taxonomy, block, markup, and request sizes are validated against strict schemas and documented limits.
