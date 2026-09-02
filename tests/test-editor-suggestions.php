@@ -264,7 +264,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$target = $this->create_target( 'Café Editorial Workflow' );
 		$payload = $this->payload(
 			0,
-			'Café Editorial Workflow draft',
+			'Café Editorial Workflow',
 			array(
 				$this->paragraph( 'Earlier unrelated context remains here.' ),
 				$this->unit( 'second', 'core/paragraph', '<!-- wp:paragraph --><p>😀 Café Editorial Workflow appears twice. Café Editorial Workflow.</p><!-- /wp:paragraph -->' ),
@@ -383,7 +383,9 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		}
 		$payload = $this->payload( 0, 'Bounded Candidate', array( $this->paragraph( 'Bounded candidate shared deterministic fixture content.' ) ) );
 		$payload['taxonomies'] = array( 'category' => array( $category ) );
-		wp_cache_flush();
+		foreach ( $ids as $post_id ) {
+			clean_post_cache( $post_id );
+		}
 		$response = Editor_Suggestions::analyze( $payload );
 		$metrics = Editor_Suggestions::last_metrics();
 		fwrite(
