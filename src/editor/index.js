@@ -203,7 +203,7 @@ export function EditorSuggestionsSidebar() {
 				<Button
 					variant="primary"
 					onClick={ analyze }
-					disabled={ ! snapshot || state.status === 'loading' }
+					disabled={ ! snapshot }
 				>
 					{ state.response
 						? __( 'Refresh suggestions', 'intertexere' )

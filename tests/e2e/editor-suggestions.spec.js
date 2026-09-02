@@ -61,7 +61,10 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
 		await expect(
-			page.getByRole( 'heading', { name: candidateTitle } )
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
 		).toBeVisible();
 		expect( analysisRequests ).toBe( 1 );
 		expect( await page.getByText( 'Insert Link' ).count() ).toBe( 0 );
@@ -69,7 +72,11 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await editor.setContent(
 			unsavedContent.replace( 'guide', 'changed guide' )
 		);
-		await expect( page.getByText( /The draft changed/ ) ).toBeVisible();
+		await expect(
+			page
+				.getByLabel( 'Editor settings' )
+				.getByText( /The draft changed/ )
+		).toBeVisible();
 		await expect.poll( () => analysisRequests ).toBe( 1 );
 
 		await page.getByRole( 'button', { name: 'Dismiss' } ).click();
@@ -146,7 +153,10 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await openSidebar( page );
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
 		await expect(
-			page.getByRole( 'heading', { name: candidateTitle } )
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
 		).toBeVisible();
 
 		const beforeSave = await requestUtils.rest( {
@@ -187,7 +197,11 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 				'<!-- wp:paragraph --><p>Ordinary editing still works.</p><!-- /wp:paragraph -->'
 			);
 			await editor.saveDraft();
-			await expect( page.getByText( /Draft saved/ ) ).toBeVisible();
+			await expect(
+				page
+					.getByTestId( 'snackbar' )
+					.filter( { hasText: 'Draft saved.' } )
+			).toBeVisible();
 		} finally {
 			await requestUtils.activatePlugin( 'intertexere' );
 		}
