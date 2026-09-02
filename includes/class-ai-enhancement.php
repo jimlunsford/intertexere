@@ -103,6 +103,10 @@ final class AI_Enhancement {
 		if ( ! $adapter->is_supported( $request ) ) {
 			return self::error( 'intertexere_ai_unavailable', 'No compatible configured AI model is available.', 503 );
 		}
+		$target_states = self::target_states( $validated['candidate_ids'] );
+		if ( is_wp_error( $target_states ) ) {
+			return self::stale();
+		}
 
 		do_action( 'intertexere_ai_before_provider', $prepared, $validated );
 		$provider = $adapter->generate( $request );
@@ -122,6 +126,10 @@ final class AI_Enhancement {
 
 		do_action( 'intertexere_ai_before_final_revalidation', $validated, $evaluations );
 		if ( ! self::current_user_can_edit_source( $validated['draft'] ) ) {
+			return self::stale();
+		}
+		$current_target_states = self::target_states( $validated['candidate_ids'] );
+		if ( is_wp_error( $current_target_states ) || $target_states !== $current_target_states ) {
 			return self::stale();
 		}
 		$current = Editor_Suggestions::analyze( $validated['draft'] );
@@ -243,6 +251,45 @@ final class AI_Enhancement {
 			'analysis_id'   => $payload['analysis_id'],
 			'candidate_ids' => array_keys( $candidate_ids ),
 		);
+	}
+
+	/**
+	 * Capture server-authoritative target metadata that must remain current.
+	 *
+	 * This state never enters the model prompt. It independently protects
+	 * current WordPress identity, canonical URL, type, and eligibility across
+	 * the external provider boundary.
+	 *
+	 * @param int[] $candidate_ids Current deterministic target IDs.
+	 * @return array<int, array<string, mixed>>|\WP_Error
+	 */
+	private static function target_states( array $candidate_ids ) {
+		$states = array();
+		foreach ( $candidate_ids as $candidate_id ) {
+			$post = get_post( $candidate_id );
+			if ( ! $post instanceof \WP_Post || ! Eligibility::is_eligible( $post ) ) {
+				return self::stale();
+			}
+
+			$permalink = get_permalink( $post );
+			if ( ! is_string( $permalink ) || '' === $permalink ) {
+				return self::stale();
+			}
+
+			$states[ $candidate_id ] = array(
+				'target_post_id'   => (int) $post->ID,
+				'target_title'     => (string) get_the_title( $post ),
+				'target_permalink' => $permalink,
+				'target_post_type' => (string) $post->post_type,
+				'post_status'      => (string) $post->post_status,
+				'post_password'    => (string) $post->post_password,
+				'post_name'        => (string) $post->post_name,
+				'post_parent'      => (int) $post->post_parent,
+				'eligible'         => true,
+			);
+		}
+
+		return $states;
 	}
 
 	/**

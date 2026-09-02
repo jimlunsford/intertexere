@@ -6,6 +6,7 @@
 use Intertexere\AI_Client_Adapter;
 use Intertexere\AI_Enhancement;
 use Intertexere\Editor_Suggestions;
+use Intertexere\Eligibility;
 use Intertexere\Indexer;
 use Intertexere\Link_Graph;
 use Intertexere\Schema;
@@ -253,25 +254,140 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
 	}
 
-	public function test_target_metadata_and_eligibility_changes_after_provider_are_stale(): void {
+	public function test_unchanged_target_metadata_after_provider_still_succeeds(): void {
+		$before_permalink = get_permalink( $this->target_id );
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			clean_post_cache( $this->target_id );
+		} );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $this->target_id, $result['evaluations'][0]['target_post_id'] );
+		$this->assertSame( 'Focused Recovery Practice', $result['evaluations'][0]['target_title'] );
+		$this->assertSame( $before_permalink, $result['evaluations'][0]['target_permalink'] );
+		$this->assertSame( 'post', $result['evaluations'][0]['target_post_type'] );
+	}
+
+	public function test_title_only_change_after_provider_is_stale(): void {
+		$before_permalink = get_permalink( $this->target_id );
+		$before_slug      = get_post_field( 'post_name', $this->target_id );
 		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
 			wp_update_post( array(
 				'ID'         => $this->target_id,
 				'post_title' => 'Changed while provider ran',
-				'post_name'  => 'changed-while-provider-ran',
 			) );
 		} );
-		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
 
-		remove_all_actions( 'intertexere_ai_before_final_revalidation' );
-		wp_update_post( array( 'ID' => $this->target_id, 'post_title' => 'Focused Recovery Practice', 'post_status' => 'publish', 'post_password' => '' ) );
-		Indexer::refresh_post( $this->target_id );
-		Link_Graph::refresh_post( $this->target_id );
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( 'Changed while provider ran', get_the_title( $this->target_id ) );
+		$this->assertSame( $before_slug, get_post_field( 'post_name', $this->target_id ) );
+		$this->assertSame( $before_permalink, get_permalink( $this->target_id ) );
+		$this->assertTrue( Eligibility::is_eligible( $this->target_id ) );
+	}
+
+	public function test_permalink_only_change_after_provider_is_stale(): void {
+		$permalink_filter = function ( string $permalink, \WP_Post $post ): string {
+			return $this->target_id === (int) $post->ID
+				? home_url( '/ai-target/' . $post->post_name . '/' )
+				: $permalink;
+		};
+		add_filter( 'post_link', $permalink_filter, 10, 2 );
 		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		$before_candidate = $this->suggestion_for_target( $this->analysis );
+		$before_permalink = get_permalink( $this->target_id );
+		$index_generation = get_option( Schema::GENERATION_OPTION );
+		$graph_generation = get_option( Schema::GRAPH_GENERATION_OPTION );
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_update_post( array(
+				'ID'        => $this->target_id,
+				'post_name' => 'permalink-only-change',
+			) );
+		} );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+		$after_permalink = get_permalink( $this->target_id );
+		$current = Editor_Suggestions::analyze( $this->draft );
+		$after_candidate = $this->suggestion_for_target( $current );
+		remove_filter( 'post_link', $permalink_filter, 10 );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( 'Focused Recovery Practice', get_the_title( $this->target_id ) );
+		$this->assertSame( 'publish', get_post_status( $this->target_id ) );
+		$this->assertTrue( Eligibility::is_eligible( $this->target_id ) );
+		$this->assertSame( $index_generation, get_option( Schema::GENERATION_OPTION ) );
+		$this->assertSame( $graph_generation, get_option( Schema::GRAPH_GENERATION_OPTION ) );
+		$this->assertSame( $this->analysis['analysis_id'], $current['analysis_id'] );
+		$this->assertSame( $this->analysis['draft_hash'], $current['draft_hash'] );
+		$this->assertSame( $before_candidate['target_post_id'], $after_candidate['target_post_id'] );
+		$this->assertSame( $before_candidate['target_title'], $after_candidate['target_title'] );
+		$this->assertSame( $before_candidate['target_post_type'], $after_candidate['target_post_type'] );
+		$this->assertSame( $before_candidate['score'], $after_candidate['score'] );
+		$this->assertSame( $before_candidate['reason'], $after_candidate['reason'] );
+		$this->assertSame( $before_candidate['location'], $after_candidate['location'] );
+		$this->assertNotSame( $before_permalink, $after_permalink );
+		$this->assertSame( $after_permalink, $after_candidate['target_permalink'] );
+		$this->assertStringNotContainsString( $before_permalink, $this->adapter->last_request['prompt'] );
+		$this->assertStringNotContainsString( $after_permalink, $this->adapter->last_request['prompt'] );
+	}
+
+	public function test_post_type_change_after_provider_is_stale(): void {
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_update_post( array( 'ID' => $this->target_id, 'post_type' => 'page' ) );
+		} );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( 'page', get_post_type( $this->target_id ) );
+		$this->assertTrue( Eligibility::is_eligible( $this->target_id ) );
+	}
+
+	public function test_current_eligibility_change_after_provider_is_stale(): void {
+		$eligibility_filter = function ( bool $eligible, \WP_Post $post ): bool {
+			return $this->target_id === (int) $post->ID ? false : $eligible;
+		};
+		add_action( 'intertexere_ai_before_final_revalidation', static function () use ( $eligibility_filter ): void {
+			add_filter( 'intertexere_is_post_eligible', $eligibility_filter, 10, 2 );
+		} );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+		remove_filter( 'intertexere_is_post_eligible', $eligibility_filter, 10 );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( 'Focused Recovery Practice', get_the_title( $this->target_id ) );
+		$this->assertSame( 'publish', get_post_status( $this->target_id ) );
+		$this->assertSame( '', get_post_field( 'post_password', $this->target_id ) );
+	}
+
+	public function test_password_protection_change_after_provider_is_stale(): void {
+		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
+			wp_update_post( array( 'ID' => $this->target_id, 'post_password' => 'now-private' ) );
+		} );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( 'now-private', get_post_field( 'post_password', $this->target_id ) );
+	}
+
+	public function test_publish_status_change_after_provider_is_stale(): void {
 		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
 			wp_update_post( array( 'ID' => $this->target_id, 'post_status' => 'draft' ) );
 		} );
-		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( 'draft', get_post_status( $this->target_id ) );
 	}
 
 	public function test_target_becoming_already_linked_after_provider_is_stale(): void {
@@ -279,27 +395,34 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->draft['units'][0]['markup'] = '<!-- wp:paragraph --><p>Focused Recovery Practice creates durable proof. <a href="' . esc_url( $future_url ) . '">Future destination</a>.</p><!-- /wp:paragraph -->';
 		$this->analysis = Editor_Suggestions::analyze( $this->draft );
 		$this->assertNotEmpty( $this->analysis['suggestions'] );
-		add_action( 'intertexere_ai_before_final_revalidation', function () use ( $future_url ): void {
-			add_filter(
-				'post_link',
-				function ( string $permalink, \WP_Post $post ) use ( $future_url ): string {
-					return $this->target_id === (int) $post->ID ? $future_url : $permalink;
-				},
-				10,
-				2
-			);
+		$before_permalink = get_permalink( $this->target_id );
+		$resolver_filter = function ( string $url ) use ( $future_url ): string {
+			return $future_url === $url ? (string) get_permalink( $this->target_id ) : $url;
+		};
+		add_action( 'intertexere_ai_before_final_revalidation', static function () use ( $resolver_filter ): void {
+			add_filter( 'url_to_postid', $resolver_filter );
 		} );
+
 		$result = AI_Enhancement::enhance( $this->request() );
-		remove_all_filters( 'post_link' );
+		remove_filter( 'url_to_postid', $resolver_filter );
+
 		$this->assertWPError( $result );
 		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertSame( $before_permalink, get_permalink( $this->target_id ) );
+		$this->assertSame( 'Focused Recovery Practice', get_the_title( $this->target_id ) );
+		$this->assertTrue( Eligibility::is_eligible( $this->target_id ) );
 	}
 
 	public function test_deleted_target_after_provider_is_stale(): void {
 		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
 			wp_delete_post( $this->target_id, true );
 		} );
-		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
+		$this->assertNull( get_post( $this->target_id ) );
 	}
 
 	public function test_lost_source_capability_after_provider_is_stale(): void {
@@ -434,17 +557,11 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->assertSame( 'intertexere_ai_malformed_response', AI_Enhancement::enhance( $this->request() )->get_error_code() );
 	}
 
-	public function test_stale_analysis_and_target_races_stop_or_discard_ai(): void {
+	public function test_stale_analysis_stops_before_provider(): void {
 		$stale = $this->request();
 		$stale['analysis_id'] = str_repeat( 'a', 64 );
 		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $stale )->get_error_code() );
 		$this->assertSame( 0, $this->adapter->calls );
-
-		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
-			wp_update_post( array( 'ID' => $this->target_id, 'post_password' => 'now-private' ) );
-		} );
-		$this->adapter->result = $this->valid_raw();
-		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
 	}
 
 	public function test_prompt_is_minimal_and_prompt_injection_remains_untrusted_data(): void {
@@ -459,6 +576,21 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'DO NOT EXPOSE PRIVATE FIXTURE', $prompt );
 		$this->assertStringContainsString( 'evaluate only', strtolower( $this->adapter->last_request['system_instruction'] ) );
 		$this->assertSame( $this->target_id, $result['candidate_ids'][0] );
+	}
+
+	/** @return array<string, mixed> */
+	private function suggestion_for_target( array $analysis ): array {
+		$suggestions = array_values(
+			array_filter(
+				$analysis['suggestions'],
+				function ( array $suggestion ): bool {
+					return $this->target_id === (int) $suggestion['target_post_id'];
+				}
+			)
+		);
+		$this->assertCount( 1, $suggestions );
+
+		return $suggestions[0];
 	}
 
 	/** @return array<string, mixed> */
