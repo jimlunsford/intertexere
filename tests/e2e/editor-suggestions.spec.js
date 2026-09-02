@@ -94,56 +94,69 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		} );
 		await openSidebar( page );
 
-		let first = true;
-		let markFirstStarted;
-		let releaseFirst;
-		const firstStarted = new Promise( ( resolve ) => {
-			markFirstStarted = resolve;
-		} );
-		const firstReleased = new Promise( ( resolve ) => {
-			releaseFirst = resolve;
-		} );
-		await page.route(
-			'**/wp-json/intertexere/v1/editor-suggestions',
-			async ( route ) => {
-				if ( first ) {
-					first = false;
-					markFirstStarted();
-					await firstReleased;
-					try {
-						await route.fulfill( {
-							status: 500,
-							contentType: 'application/json',
-							body: JSON.stringify( {
-								code: 'old',
-								message: 'Old response',
-							} ),
-						} );
-					} catch {
-						// The explicit second request is expected to abort this route.
-					}
-					return;
+		await page.evaluate( () => {
+			const originalFetch = window.fetch.bind( window );
+			let analysisCalls = 0;
+			window.fetch = ( resource, options ) => {
+				const url =
+					typeof resource === 'string' ? resource : resource.url;
+				if ( ! url.includes( '/intertexere/v1/editor-suggestions' ) ) {
+					return originalFetch( resource, options );
 				}
-				await route.fulfill( {
-					status: 503,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						code: 'intertexere_index_unavailable',
-						message: 'Index unavailable',
-					} ),
-				} );
-			}
-		);
+
+				analysisCalls += 1;
+				if ( analysisCalls === 1 ) {
+					return new Promise( ( resolve ) => {
+						window.__intertexereReleaseOldResponse = () =>
+							resolve(
+								new Response(
+									JSON.stringify( {
+										code: 'old',
+										message: 'Old response',
+									} ),
+									{
+										status: 500,
+										headers: {
+											'Content-Type': 'application/json',
+										},
+									}
+								)
+							);
+					} );
+				}
+
+				return Promise.resolve(
+					new Response(
+						JSON.stringify( {
+							code: 'intertexere_index_unavailable',
+							message: 'Index unavailable',
+						} ),
+						{
+							status: 503,
+							headers: { 'Content-Type': 'application/json' },
+						}
+					)
+				);
+			};
+		} );
 
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
-		await firstStarted;
+		await expect
+			.poll( () =>
+				page.evaluate(
+					() =>
+						typeof window.__intertexereReleaseOldResponse ===
+						'function'
+				)
+			)
+			.toBe( true );
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
 		await expect(
 			page
 				.getByLabel( 'Editor settings' )
 				.getByText( 'Index unavailable' )
 		).toBeVisible();
-		releaseFirst();
+		await page.evaluate( () => window.__intertexereReleaseOldResponse() );
 		await page.waitForTimeout( 100 );
 		await expect( page.getByText( 'Old response' ) ).toHaveCount( 0 );
 	} );
