@@ -78,7 +78,8 @@ final class Insertion_Validation {
 			$request['validated_draft']['base_url'],
 			$request['validated_draft']['post_id'],
 			$request['target_post_id'],
-			$target_before['canonical_permalink']
+			$target_before['canonical_permalink'],
+			$request['anchor']['exact_text']
 		);
 		if ( 'already-linked' === $range_state ) {
 			return self::error( 'intertexere_insertion_already_linked', 'This exact phrase already links to the current target.', 409 );
@@ -348,7 +349,7 @@ final class Insertion_Validation {
 			&& ( $location['start'] ?? null ) === $anchor_start;
 	}
 
-	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink ): string {
+	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink, string $exact_text ): string {
 		if ( ! preg_match_all( '#<a\b[^>]*>(.*?)</a>#is', $html, $matches, PREG_OFFSET_CAPTURE ) ) {
 			return 'clear';
 		}
@@ -369,7 +370,8 @@ final class Insertion_Validation {
 
 			$processor = new \WP_HTML_Tag_Processor( $match[0] );
 			$href      = $processor->next_tag( array( 'tag_name' => 'A' ) ) ? $processor->get_attribute( 'href' ) : null;
-			if ( $start === $link_start && $end === $link_end && is_string( $href )
+			$exact_range = ( $start === $link_start && $end === $link_end ) || $link_text === $exact_text;
+			if ( $exact_range && is_string( $href )
 				&& self::reference_targets_post( $href, $base_url, $source_post_id, $target_post_id, $target_permalink ) ) {
 				return 'already-linked';
 			}
