@@ -27,7 +27,7 @@ add_action(
 				},
 				'callback'            => static function ( WP_REST_Request $request ): WP_REST_Response {
 					$mode = sanitize_key( (string) $request->get_param( 'mode' ) );
-					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure' ), true ) ) {
+					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure', 'insertion-delayed' ), true ) ) {
 						$mode = 'available';
 					}
 					update_option( 'intertexere_e2e_ai_mode', $mode, false );
@@ -63,13 +63,18 @@ add_filter(
 				}
 				$prompt = json_decode( (string) $request['prompt'], true );
 				$evaluations = array();
+				$unit = isset( $prompt['draft']['units'][0] ) && is_array( $prompt['draft']['units'][0] ) ? $prompt['draft']['units'][0] : null;
+				$anchor_text = 'deterministic WordPress performance';
+				$anchor = is_array( $unit ) && false !== strpos( (string) $unit['text'], $anchor_text )
+					? array( 'unit_key' => (string) $unit['unit_key'], 'exact_text' => $anchor_text, 'occurrence' => 0 )
+					: null;
 				foreach ( isset( $prompt['candidates'] ) && is_array( $prompt['candidates'] ) ? $prompt['candidates'] : array() as $index => $candidate ) {
 					$evaluations[] = array(
 						'candidate_key' => (string) $candidate['candidate_key'],
 						'decision'      => 0 === $index ? 'keep' : 'drop',
 						'rank'          => 0 === $index ? 1 : null,
 						'reason'        => 'Deterministic E2E enhancement keeps the strongest contextual destination.',
-						'anchor'        => null,
+						'anchor'        => 0 === $index ? $anchor : null,
 					);
 				}
 
@@ -79,5 +84,14 @@ add_filter(
 				);
 			}
 		};
+	}
+);
+
+add_action(
+	'intertexere_insertion_rest_before_validation',
+	static function (): void {
+		if ( 'insertion-delayed' === get_option( 'intertexere_e2e_ai_mode', 'available' ) ) {
+			usleep( 800000 );
+		}
 	}
 );

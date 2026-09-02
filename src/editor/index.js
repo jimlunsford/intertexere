@@ -1,7 +1,12 @@
 import apiFetch from '@wordpress/api-fetch';
+import { store as blockEditorStore } from '@wordpress/block-editor';
 import { Button, Notice, PanelBody } from '@wordpress/components';
-import { useSelect } from '@wordpress/data';
-import { PluginSidebar, PluginSidebarMoreMenuItem } from '@wordpress/editor';
+import { dispatch, select, useSelect } from '@wordpress/data';
+import {
+	PluginSidebar,
+	PluginSidebarMoreMenuItem,
+	store as editorStore,
+} from '@wordpress/editor';
 import { link } from '@wordpress/icons';
 import { registerPlugin } from '@wordpress/plugins';
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
@@ -15,6 +20,14 @@ import {
 } from './request-state';
 import { buildSnapshot, clientHashInput, sha256 } from './snapshot';
 import { AIControls, AnalysisBody } from './components';
+import {
+	applyValidatedLink,
+	collectDraftLinks,
+	contentIdentity,
+	isCurrentValidationResponse,
+	resolveInsertionEvidence,
+	richTextPlainText,
+} from './insertion';
 import './style.scss';
 
 const settings = window.IntertexereEditorSettings;
@@ -40,10 +53,80 @@ function failedAIStatus( error ) {
 	return 'failed';
 }
 
+function insertionFailure( error ) {
+	const states = {
+		intertexere_insertion_stale: [
+			'stale',
+			__(
+				'The draft or suggestion changed. Refresh before inserting.',
+				'intertexere'
+			),
+		],
+		intertexere_insertion_duplicate: [
+			'duplicate',
+			__(
+				'This draft already links to that destination.',
+				'intertexere'
+			),
+		],
+		intertexere_insertion_already_linked: [
+			'already-linked',
+			__(
+				'This exact phrase is already linked to that destination.',
+				'intertexere'
+			),
+		],
+		intertexere_insertion_unsupported: [
+			'unsupported',
+			__(
+				'This block is not supported for link insertion.',
+				'intertexere'
+			),
+		],
+		intertexere_insertion_target_unavailable: [
+			'target-unavailable',
+			__(
+				'The suggested destination is no longer available.',
+				'intertexere'
+			),
+		],
+		intertexere_insertion_link_overlap: [
+			'overlap',
+			__( 'The exact phrase overlaps an existing link.', 'intertexere' ),
+		],
+	};
+	const fallback = [
+		'validation-error',
+		error?.message ||
+			__(
+				'Intertexere could not validate this insertion.',
+				'intertexere'
+			),
+	];
+	const [ status, message ] = states[ error?.code ] || fallback;
+	return { status, message };
+}
+
+function readEditorState() {
+	const editor = select( editorStore );
+	const blockEditor = select( blockEditorStore );
+	const taxonomies = {};
+	Object.values( settings.taxonomyFields || {} ).forEach( ( field ) => {
+		taxonomies[ field ] = editor.getEditedPostAttribute( field ) || [];
+	} );
+	return {
+		postId: editor.getCurrentPostId() || 0,
+		postType: editor.getCurrentPostType(),
+		title: editor.getEditedPostAttribute( 'title' ) || '',
+		taxonomies,
+		blocks: blockEditor.getBlocks(),
+	};
+}
+
 export function EditorSuggestionsSidebar() {
-	const editorState = useSelect( ( select ) => {
-		const editor = select( 'core/editor' );
-		const blockEditor = select( 'core/block-editor' );
+	const editorState = useSelect( ( registrySelect ) => {
+		const editor = registrySelect( 'core/editor' );
+		const blockEditor = registrySelect( 'core/block-editor' );
 		const taxonomies = {};
 		Object.values( settings.taxonomyFields || {} ).forEach( ( field ) => {
 			taxonomies[ field ] = editor.getEditedPostAttribute( field ) || [];
@@ -62,12 +145,15 @@ export function EditorSuggestionsSidebar() {
 	}`;
 	const gate = useRef( createRequestGate() );
 	const aiGate = useRef( createRequestGate() );
+	const insertionGate = useRef( createRequestGate() );
 	const controller = useRef( null );
 	const aiController = useRef( null );
+	const insertionController = useRef( null );
 	const cache = useRef( new Map() );
 	const aiCache = useRef( new Map() );
 	const identity = useRef( postIdentity );
 	const currentSignature = useRef( '' );
+	const currentLinkSignature = useRef( '' );
 	const [ state, setState ] = useState( {
 		status: 'ready',
 		response: null,
@@ -83,6 +169,7 @@ export function EditorSuggestionsSidebar() {
 		signature: '',
 	} );
 	const [ enhancedMode, setEnhancedMode ] = useState( false );
+	const [ insertionStates, setInsertionStates ] = useState( {} );
 
 	identity.current = postIdentity;
 	const snapshotResult = useMemo( () => {
@@ -98,6 +185,22 @@ export function EditorSuggestionsSidebar() {
 	const snapshot = snapshotResult.snapshot;
 	const snapshotError = snapshotResult.error;
 	currentSignature.current = snapshot?.signature || '';
+	const draftLinksResult = useMemo( () => {
+		try {
+			return {
+				links: collectDraftLinks(
+					editorState.blocks,
+					settings.insertion
+				),
+				error: '',
+			};
+		} catch ( error ) {
+			return { links: null, error: error.message };
+		}
+	}, [ editorState.blocks ] );
+	const draftLinks = draftLinksResult.links;
+	const draftLinkSignature = draftLinks ? JSON.stringify( draftLinks ) : '';
+	currentLinkSignature.current = draftLinkSignature;
 
 	const stale = Boolean(
 		state.response && snapshot && state.signature !== snapshot.signature
@@ -124,12 +227,33 @@ export function EditorSuggestionsSidebar() {
 							aiEvaluations.get( right.target_post_id ).rank
 					)
 			: deterministicShown;
+	const insertionEvidence = useMemo( () => {
+		const evidence = new Map();
+		if ( ! snapshot || ! draftLinks ) {
+			return evidence;
+		}
+		shown.forEach( ( suggestion ) => {
+			const resolved = resolveInsertionEvidence(
+				suggestion,
+				enhancedMode
+					? aiEvaluations.get( suggestion.target_post_id )
+					: null,
+				( clientId ) => select( blockEditorStore ).getBlock( clientId )
+			);
+			if ( resolved ) {
+				evidence.set( suggestion.target_post_id, resolved );
+			}
+		} );
+		return evidence;
+	}, [ shown, enhancedMode, aiEvaluations, snapshot, draftLinks ] );
 
 	useEffect( () => {
 		controller.current?.abort();
 		aiController.current?.abort();
+		insertionController.current?.abort();
 		gate.current.invalidate();
 		aiGate.current.invalidate();
+		insertionGate.current.invalidate();
 		cache.current.clear();
 		aiCache.current.clear();
 		setDismissed( new Set() );
@@ -147,14 +271,17 @@ export function EditorSuggestionsSidebar() {
 			signature: '',
 		} );
 		setEnhancedMode( false );
+		setInsertionStates( {} );
 	}, [ postIdentity ] );
 
 	useEffect(
 		() => () => {
 			controller.current?.abort();
 			aiController.current?.abort();
+			insertionController.current?.abort();
 			gate.current.invalidate();
 			aiGate.current.invalidate();
+			insertionGate.current.invalidate();
 		},
 		[]
 	);
@@ -182,12 +309,35 @@ export function EditorSuggestionsSidebar() {
 		postIdentity,
 	] );
 
+	useEffect( () => {
+		insertionController.current?.abort();
+		insertionGate.current.invalidate();
+		setInsertionStates( ( current ) => {
+			const next = { ...current };
+			Object.keys( next ).forEach( ( targetId ) => {
+				if ( next[ targetId ].status === 'validating' ) {
+					next[ targetId ] = {
+						status: 'stale',
+						message: __(
+							'The draft changed during validation. Nothing was inserted.',
+							'intertexere'
+						),
+					};
+				}
+			} );
+			return next;
+		} );
+	}, [ snapshot?.signature, draftLinkSignature ] );
+
 	const analyze = async () => {
 		if ( ! snapshot ) {
 			return;
 		}
 		controller.current?.abort();
 		aiController.current?.abort();
+		insertionController.current?.abort();
+		insertionGate.current.invalidate();
+		setInsertionStates( {} );
 		aiGate.current.invalidate();
 		aiCache.current.clear();
 		setEnhancedMode( false );
@@ -281,6 +431,10 @@ export function EditorSuggestionsSidebar() {
 		) {
 			return;
 		}
+
+		insertionController.current?.abort();
+		insertionGate.current.invalidate();
+		setInsertionStates( {} );
 
 		const candidateIds = deterministicShown
 			.slice( 0, settings.ai.maxCandidates || 8 )
@@ -382,6 +536,239 @@ export function EditorSuggestionsSidebar() {
 		}
 	};
 
+	const insertLink = async ( suggestion, displayedEvidence ) => {
+		if (
+			! snapshot ||
+			! draftLinks ||
+			! state.response ||
+			stale ||
+			! displayedEvidence
+		) {
+			return;
+		}
+
+		const aiEvaluation =
+			enhancedMode && aiState.status === 'enhanced'
+				? aiEvaluations.get( suggestion.target_post_id )
+				: null;
+		const currentEvidence = resolveInsertionEvidence(
+			suggestion,
+			aiEvaluation,
+			( clientId ) => select( blockEditorStore ).getBlock( clientId )
+		);
+		if (
+			! currentEvidence ||
+			JSON.stringify( currentEvidence ) !==
+				JSON.stringify( displayedEvidence )
+		) {
+			setInsertionStates( ( current ) => ( {
+				...current,
+				[ suggestion.target_post_id ]: {
+					status: 'stale',
+					message: __(
+						'The exact anchor changed. Refresh before inserting.',
+						'intertexere'
+					),
+				},
+			} ) );
+			return;
+		}
+
+		const requestedIdentity = postIdentity;
+		const requestedSignature = snapshot.signature;
+		const requestedLinkSignature = draftLinkSignature;
+		const requestedAnalysis = state.response.analysis_id;
+		const requestedDraftHash = state.response.draft_hash;
+		const requestedBlock = select( blockEditorStore ).getBlock(
+			currentEvidence.block_client_id
+		);
+		const requestedContentIdentity = contentIdentity(
+			requestedBlock?.attributes?.content
+		);
+		const requestedText = richTextPlainText( requestedBlock );
+		const requestedUnits = snapshot.payload.units.filter(
+			( unit ) => unit.client_id === currentEvidence.block_client_id
+		);
+		if (
+			! requestedBlock ||
+			! requestedContentIdentity ||
+			requestedText === null ||
+			requestedUnits.length !== 1
+		) {
+			return;
+		}
+		insertionController.current?.abort();
+		insertionController.current = new AbortController();
+		const requestToken = insertionGate.current.begin();
+
+		setInsertionStates( ( current ) => ( {
+			...current,
+			[ suggestion.target_post_id ]: {
+				status: 'validating',
+				message: __(
+					'Validating the current draft and destination…',
+					'intertexere'
+				),
+			},
+		} ) );
+
+		try {
+			const [ requestedMarkupIdentity, requestedTextIdentity ] =
+				await Promise.all( [
+					sha256( requestedUnits[ 0 ].markup ),
+					sha256( requestedText ),
+				] );
+			if (
+				! insertionGate.current.owns( requestToken ) ||
+				requestedIdentity !== identity.current ||
+				requestedSignature !== currentSignature.current
+			) {
+				return;
+			}
+			const response = await apiFetch( {
+				path: settings.insertionRoute,
+				method: 'POST',
+				data: {
+					draft: snapshot.payload,
+					analysis_id: requestedAnalysis,
+					target_post_id: suggestion.target_post_id,
+					source_kind: currentEvidence.source_kind,
+					anchor: {
+						block_client_id: currentEvidence.block_client_id,
+						block_name: currentEvidence.block_name,
+						exact_text: currentEvidence.exact_text,
+						occurrence: currentEvidence.occurrence,
+						unit_key: currentEvidence.unit_key,
+					},
+					draft_links: draftLinks,
+				},
+				signal: insertionController.current.signal,
+			} );
+
+			if (
+				! insertionGate.current.owns( requestToken ) ||
+				requestedIdentity !== identity.current ||
+				requestedSignature !== currentSignature.current ||
+				requestedLinkSignature !== currentLinkSignature.current ||
+				! isCurrentValidationResponse( response, {
+					contractVersion: settings.insertion.contractVersion,
+					analysisId: requestedAnalysis,
+					draftHash: requestedDraftHash,
+					targetPostId: suggestion.target_post_id,
+					sourceKind: currentEvidence.source_kind,
+					anchor: currentEvidence,
+					markupIdentity: requestedMarkupIdentity,
+					textIdentity: requestedTextIdentity,
+				} )
+			) {
+				return;
+			}
+
+			const finalEditorState = readEditorState();
+			const finalIdentity = `${ finalEditorState.postType || '' }:${
+				finalEditorState.postId || 0
+			}`;
+			const finalSnapshot = buildSnapshot( finalEditorState, settings );
+			const finalLinks = collectDraftLinks(
+				finalEditorState.blocks,
+				settings.insertion
+			);
+			const finalBlock = select( blockEditorStore ).getBlock(
+				currentEvidence.block_client_id
+			);
+			const finalEvidence = resolveInsertionEvidence(
+				suggestion,
+				aiEvaluation,
+				( clientId ) => select( blockEditorStore ).getBlock( clientId )
+			);
+
+			if (
+				! insertionGate.current.owns( requestToken ) ||
+				finalIdentity !== requestedIdentity ||
+				finalSnapshot.signature !== requestedSignature ||
+				JSON.stringify( finalLinks ) !== requestedLinkSignature ||
+				! finalBlock ||
+				finalBlock.name !== currentEvidence.block_name ||
+				contentIdentity( finalBlock.attributes?.content ) !==
+					requestedContentIdentity ||
+				JSON.stringify( finalEvidence ) !==
+					JSON.stringify( currentEvidence )
+			) {
+				setInsertionStates( ( current ) => ( {
+					...current,
+					[ suggestion.target_post_id ]: {
+						status: 'stale',
+						message: __(
+							'The editor changed during validation. Nothing was inserted.',
+							'intertexere'
+						),
+					},
+				} ) );
+				return;
+			}
+
+			const mutation = applyValidatedLink(
+				finalBlock,
+				currentEvidence,
+				response.current_permalink
+			);
+			if ( mutation.status !== 'ready' ) {
+				setInsertionStates( ( current ) => ( {
+					...current,
+					[ suggestion.target_post_id ]: {
+						status: mutation.status,
+						message: __(
+							'The exact RichText range is no longer safe. Nothing was inserted.',
+							'intertexere'
+						),
+					},
+				} ) );
+				return;
+			}
+
+			dispatch( blockEditorStore ).updateBlockAttributes(
+				currentEvidence.block_client_id,
+				{ content: mutation.nextContent }
+			);
+
+			insertionGate.current.invalidate();
+			aiController.current?.abort();
+			aiGate.current.invalidate();
+			cache.current.clear();
+			aiCache.current.clear();
+			setEnhancedMode( false );
+			setAiState( {
+				status: 'stale',
+				response: null,
+				error: '',
+				signature: '',
+				postIdentity: requestedIdentity,
+			} );
+			setState( ( current ) => ( { ...current, signature: '' } ) );
+			setInsertionStates( ( current ) => ( {
+				...current,
+				[ suggestion.target_post_id ]: {
+					status: 'inserted',
+					message: __(
+						'Link inserted in the unsaved draft. Save or publish with WordPress when you are ready.',
+						'intertexere'
+					),
+				},
+			} ) );
+		} catch ( error ) {
+			if (
+				error?.name === 'AbortError' ||
+				! insertionGate.current.owns( requestToken )
+			) {
+				return;
+			}
+			setInsertionStates( ( current ) => ( {
+				...current,
+				[ suggestion.target_post_id ]: insertionFailure( error ),
+			} ) );
+		}
+	};
+
 	return (
 		<PluginSidebar
 			name="intertexere-editor-suggestions"
@@ -397,9 +784,9 @@ export function EditorSuggestionsSidebar() {
 						) }
 					</Notice>
 				) }
-				{ snapshotError ? (
+				{ snapshotError || draftLinksResult.error ? (
 					<Notice status="warning" isDismissible={ false }>
-						{ snapshotError }
+						{ snapshotError || draftLinksResult.error }
 					</Notice>
 				) : (
 					<AnalysisBody
@@ -412,6 +799,9 @@ export function EditorSuggestionsSidebar() {
 							enhancedMode ? aiEvaluations : new Map()
 						}
 						enhancedMode={ enhancedMode }
+						insertionEvidence={ insertionEvidence }
+						insertionStates={ insertionStates }
+						onInsert={ insertLink }
 						onDismiss={ ( targetId ) =>
 							setDismissed( ( current ) =>
 								new Set( current ).add( targetId )

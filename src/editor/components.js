@@ -7,6 +7,9 @@ export function SuggestionCard( {
 	onDismiss,
 	stale,
 	aiEvaluation,
+	insertionEvidence,
+	insertionState,
+	onInsert,
 } ) {
 	const location = suggestion.location;
 	return (
@@ -77,7 +80,39 @@ export function SuggestionCard( {
 					) }
 				</p>
 			) }
+			{ ! stale && location && ! insertionEvidence && (
+				<p>
+					{ __(
+						'This location is read-only because its exact RichText range is not currently insertable.',
+						'intertexere'
+					) }
+				</p>
+			) }
+			{ insertionState?.message && (
+				<p
+					className={ `intertexere-suggestion-card__insertion-status is-${ insertionState.status }` }
+					role="status"
+					aria-live="polite"
+				>
+					{ insertionState.message }
+				</p>
+			) }
 			<div className="intertexere-suggestion-card__actions">
+				{ insertionEvidence &&
+					! stale &&
+					insertionState?.status !== 'inserted' && (
+						<Button
+							variant="primary"
+							onClick={ onInsert }
+							disabled={ insertionState?.status === 'validating' }
+							isBusy={ insertionState?.status === 'validating' }
+							aria-label={ __( 'Insert Link', 'intertexere' ) }
+						>
+							{ insertionState?.status === 'validating'
+								? __( 'Validating…', 'intertexere' )
+								: __( 'Insert Link', 'intertexere' ) }
+						</Button>
+					) }
 				<Button
 					variant="secondary"
 					href={ suggestion.target_permalink }
@@ -104,6 +139,9 @@ export function AnalysisBody( {
 	onDismiss,
 	aiEvaluations = new Map(),
 	enhancedMode = false,
+	insertionEvidence = new Map(),
+	insertionStates = {},
+	onInsert,
 } ) {
 	if ( status === 'loading' ) {
 		return (
@@ -149,6 +187,21 @@ export function AnalysisBody( {
 				suggestion={ suggestion }
 				stale={ stale }
 				aiEvaluation={ aiEvaluations.get( suggestion.target_post_id ) }
+				insertionEvidence={ insertionEvidence.get(
+					suggestion.target_post_id
+				) }
+				insertionState={
+					insertionStates[ suggestion.target_post_id ] || {
+						status: 'ready',
+						message: '',
+					}
+				}
+				onInsert={ () =>
+					onInsert(
+						suggestion,
+						insertionEvidence.get( suggestion.target_post_id )
+					)
+				}
 				onDismiss={ () => onDismiss( suggestion.target_post_id ) }
 			/>
 		) );

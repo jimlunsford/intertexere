@@ -5,6 +5,7 @@ const candidateContent =
 	'<!-- wp:paragraph --><p>Deterministic WordPress performance notes for local editorial analysis.</p><!-- /wp:paragraph -->';
 const unsavedContent =
 	'<!-- wp:paragraph --><p>Our deterministic WordPress performance guide explains predictable local analysis.</p><!-- /wp:paragraph -->';
+let candidate;
 
 async function openSidebar( page ) {
 	await page.evaluate( () => {
@@ -75,7 +76,9 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 				.locator( '..' )
 				.textContent()
 		).toBe( deterministicScore );
-		expect( await page.getByText( 'Insert Link' ).count() ).toBe( 0 );
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toBeVisible();
 		await page
 			.getByRole( 'button', { name: 'View deterministic suggestions' } )
 			.click();
@@ -142,7 +145,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			data: { mode: 'available' },
 		} );
 		await requestUtils.deleteAllPosts();
-		await requestUtils.createPost( {
+		candidate = await requestUtils.createPost( {
 			title: candidateTitle,
 			content: candidateContent,
 			status: 'publish',
@@ -420,7 +423,9 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			} )
 		).toBeVisible();
 		expect( analysisRequests ).toBe( 1 );
-		expect( await page.getByText( 'Insert Link' ).count() ).toBe( 0 );
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toBeVisible();
 
 		await editor.setContent(
 			unsavedContent.replace( 'guide', 'changed guide' )
@@ -661,5 +666,260 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		).toHaveCount( 0 );
 		await page.waitForTimeout( 100 );
 		expect( analysisRequests ).toBe( 1 );
+	} );
+
+	test( 'inserts one ordinary local link with native Undo, Redo, save, reload, and portability', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		const source = await requestUtils.createPost( {
+			title: 'Explicit insertion source',
+			content:
+				'<!-- wp:paragraph --><p>Persisted database content.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+		} );
+		const formatted =
+			'<!-- wp:paragraph --><p>Before <strong>Deterministic WordPress Performance</strong> and <em>surrounding emphasis</em> after.</p><!-- /wp:paragraph -->';
+		await admin.editPost( source.id );
+		await editor.setContent( formatted );
+
+		let validationRequests = 0;
+		page.on( 'request', ( request ) => {
+			if ( request.url().includes( '/validate-insertion' ) ) {
+				validationRequests += 1;
+			}
+		} );
+		await openSidebar( page );
+		expect( validationRequests ).toBe( 0 );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toBeVisible();
+		expect( validationRequests ).toBe( 0 );
+
+		const beforeInsertion = await editor.getEditedPostContent();
+		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await expect( page.getByRole( 'status' ) ).toContainText(
+			'Link inserted in the unsaved draft'
+		);
+		expect( validationRequests ).toBe( 1 );
+
+		const inserted = await editor.getEditedPostContent();
+		const insertedLink = await page.evaluate( ( content ) => {
+			const documentValue = new globalThis.DOMParser().parseFromString(
+				content,
+				'text/html'
+			);
+			const anchor = documentValue.querySelector( 'a' );
+			return {
+				href: anchor?.getAttribute( 'href' ),
+				text: anchor?.textContent,
+			};
+		}, inserted );
+		expect( insertedLink ).toEqual( {
+			href: candidate.link,
+			text: candidateTitle,
+		} );
+		expect( inserted ).toContain( '<strong>' );
+		expect( inserted ).toContain( '<em>surrounding emphasis</em>' );
+		expect( inserted ).not.toMatch(
+			/data-intertexere|target="_blank"|nofollow|sponsored/
+		);
+		expect(
+			await page.evaluate( () =>
+				window.wp.data.select( 'core/editor' ).isEditedPostDirty()
+			)
+		).toBe( true );
+		const databaseBeforeSave = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ source.id }`,
+			params: { context: 'edit' },
+		} );
+		expect( databaseBeforeSave.content.raw ).toContain(
+			'Persisted database content.'
+		);
+		expect( databaseBeforeSave.content.raw ).not.toContain(
+			candidate.link
+		);
+
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'core/editor' ).undo()
+		);
+		await expect
+			.poll( () => editor.getEditedPostContent() )
+			.toBe( beforeInsertion );
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'core/editor' ).redo()
+		);
+		await expect
+			.poll( () => editor.getEditedPostContent() )
+			.toBe( inserted );
+
+		await editor.saveDraft();
+		const databaseAfterSave = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ source.id }`,
+			params: { context: 'edit' },
+		} );
+		expect( databaseAfterSave.content.raw ).toBe( inserted );
+		await admin.editPost( source.id );
+		expect( await editor.getEditedPostContent() ).toBe( inserted );
+
+		await requestUtils.deactivatePlugin( 'intertexere' );
+		try {
+			await admin.editPost( source.id );
+			expect( await editor.getEditedPostContent() ).toBe( inserted );
+			expect( await page.getByText( 'Analyze draft' ).count() ).toBe( 0 );
+		} finally {
+			await requestUtils.activatePlugin( 'intertexere' );
+		}
+	} );
+
+	test( 'routes an AI-kept exact anchor through the same insertion validation', async ( {
+		admin,
+		editor,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: 'AI-kept insertion source',
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		const insertionBodies = [];
+		page.on( 'request', ( request ) => {
+			if ( request.url().includes( '/validate-insertion' ) ) {
+				insertionBodies.push( request.postDataJSON() );
+			}
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect(
+			page.getByText( /AI-selected existing phrase:/ )
+		).toBeVisible();
+		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await expect( page.getByRole( 'status' ) ).toContainText(
+			'Link inserted in the unsaved draft'
+		);
+		expect( insertionBodies ).toHaveLength( 1 );
+		expect( insertionBodies[ 0 ].source_kind ).toBe( 'ai' );
+		expect( insertionBodies[ 0 ].anchor.unit_key ).toBe( 'u1' );
+		expect( await editor.getEditedPostContent() ).toContain(
+			`<a href="${ candidate.link }">deterministic WordPress performance</a>`
+		);
+	} );
+
+	test( 'prevents duplicate insertion after current draft reanalysis', async ( {
+		admin,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: 'Duplicate insertion source',
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await expect( page.getByRole( 'status' ) ).toContainText(
+			'Link inserted'
+		);
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toHaveCount( 0 );
+		await page
+			.getByRole( 'button', { name: 'Refresh suggestions' } )
+			.click();
+		await expect( page.getByText( /No current suggestion/ ) ).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toHaveCount( 0 );
+	} );
+
+	test( 'fails closed when the draft changes during delayed validation', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'insertion-delayed' },
+		} );
+		await admin.createNewPost( {
+			title: 'Delayed insertion source',
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toBeDisabled();
+		const changed = unsavedContent.replace( 'guide', 'changed guide' );
+		await editor.setContent( changed );
+		await page.waitForTimeout( 1000 );
+		expect( await editor.getEditedPostContent() ).toBe( changed );
+		expect( await editor.getEditedPostContent() ).not.toContain(
+			'<a href='
+		);
+	} );
+
+	test( 'fails closed on navigation and keeps unsupported locations read-only', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'insertion-delayed' },
+		} );
+		const first = await requestUtils.createPost( {
+			title: 'Navigation insertion source',
+			content: unsavedContent,
+			status: 'draft',
+		} );
+		const second = await requestUtils.createPost( {
+			title: 'Navigation destination editor',
+			content:
+				'<!-- wp:paragraph --><p>Second post remains untouched.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+		} );
+		await admin.editPost( first.id );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await admin.editPost( second.id );
+		await page.waitForTimeout( 1000 );
+		expect( await editor.getEditedPostContent() ).toContain(
+			'Second post remains untouched.'
+		);
+		expect( await editor.getEditedPostContent() ).not.toContain(
+			candidate.link
+		);
+
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'available' },
+		} );
+		await editor.setContent(
+			'<!-- wp:verse --><pre class="wp-block-verse">Deterministic WordPress performance remains read only.</pre><!-- /wp:verse -->'
+		);
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'Insert Link' } )
+		).toHaveCount( 0 );
+		expect( await editor.getEditedPostContent() ).not.toContain(
+			'<a href='
+		);
 	} );
 } );

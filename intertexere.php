@@ -30,6 +30,7 @@ require_once INTERTEXERE_PATH . 'includes/class-link-graph.php';
 require_once INTERTEXERE_PATH . 'includes/class-editor-suggestions.php';
 require_once INTERTEXERE_PATH . 'includes/class-ai-client-adapter.php';
 require_once INTERTEXERE_PATH . 'includes/class-ai-enhancement.php';
+require_once INTERTEXERE_PATH . 'includes/class-insertion-validation.php';
 require_once INTERTEXERE_PATH . 'includes/class-editor-rest.php';
 require_once INTERTEXERE_PATH . 'includes/class-editor-assets.php';
 require_once INTERTEXERE_PATH . 'includes/class-admin.php';
