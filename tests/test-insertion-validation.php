@@ -132,6 +132,14 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertError( 'intertexere_insertion_invalid_request', Insertion_Validation::validate( $request ) );
 
 		$request = $this->request_payload();
+		$request['anchor']['occurrence'] = Insertion_Validation::MAX_ANCHOR_OCCURRENCE + 1;
+		$this->assertError( 'intertexere_insertion_invalid_request', Insertion_Validation::validate( $request ) );
+
+		$request = $this->request_payload();
+		$request['draft_links'] = array( 1 => get_permalink( $this->target_id ) );
+		$this->assertError( 'intertexere_insertion_invalid_request', Insertion_Validation::validate( $request ) );
+
+		$request = $this->request_payload();
 		$request['anchor']['block_name'] = 'core/quote';
 		$this->assertError( 'intertexere_insertion_unsupported', Insertion_Validation::validate( $request ) );
 	}

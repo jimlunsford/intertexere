@@ -10,6 +10,7 @@ namespace Intertexere;
 final class Insertion_Validation {
 	public const CONTRACT_VERSION = 1;
 	public const MAX_ANCHOR_CHARACTERS = 200;
+	public const MAX_ANCHOR_OCCURRENCE = 16383;
 	public const MAX_DRAFT_LINKS = 200;
 	public const MAX_DRAFT_LINK_BYTES = 2048;
 
@@ -223,7 +224,7 @@ final class Insertion_Validation {
 			|| self::length( $anchor['exact_text'] ) > self::MAX_ANCHOR_CHARACTERS ) {
 			return self::invalid( 'The exact anchor text is invalid or exceeds the limit.' );
 		}
-		if ( ! is_int( $anchor['occurrence'] ) || $anchor['occurrence'] < 0 ) {
+		if ( ! is_int( $anchor['occurrence'] ) || $anchor['occurrence'] < 0 || $anchor['occurrence'] > self::MAX_ANCHOR_OCCURRENCE ) {
 			return self::invalid( 'The exact anchor occurrence is invalid.' );
 		}
 		if ( 'ai' === $source_kind ) {
@@ -239,7 +240,7 @@ final class Insertion_Validation {
 
 	/** @return string[]|\WP_Error */
 	private static function validate_draft_links( $links ) {
-		if ( ! is_array( $links ) || count( $links ) > self::MAX_DRAFT_LINKS ) {
+		if ( ! is_array( $links ) || array_values( $links ) !== $links || count( $links ) > self::MAX_DRAFT_LINKS ) {
 			return self::invalid( 'The draft contains too many link references.', 413, 'intertexere_insertion_link_limit' );
 		}
 		$validated = array();
@@ -308,7 +309,8 @@ final class Insertion_Validation {
 		}
 		$permalink = get_permalink( $post );
 		$eligible  = Eligibility::is_eligible( $post );
-		if ( ! $eligible || ! is_string( $permalink ) || '' === $permalink ) {
+		if ( ! $eligible || ! is_string( $permalink ) || '' === $permalink || ! self::valid_utf8( $permalink )
+			|| strlen( $permalink ) > self::MAX_DRAFT_LINK_BYTES || ! Link_Resolver::is_internal_url( $permalink ) ) {
 			return self::error( 'intertexere_insertion_target_unavailable', 'The link target is no longer eligible or public.', 409 );
 		}
 
@@ -363,7 +365,7 @@ final class Insertion_Validation {
 			}
 
 			$processor = new \WP_HTML_Tag_Processor( $match[0] );
-			$href      = $processor->next_tag( 'A' ) ? $processor->get_attribute( 'href' ) : null;
+			$href      = $processor->next_tag( array( 'tag_name' => 'A' ) ) ? $processor->get_attribute( 'href' ) : null;
 			if ( $start === $link_start && $end === $link_end && is_string( $href )
 				&& self::reference_targets_post( $href, $base_url, $source_post_id, $target_post_id, $target_permalink ) ) {
 				return 'already-linked';
