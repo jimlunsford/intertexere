@@ -219,4 +219,52 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			await requestUtils.activatePlugin( 'intertexere' );
 		}
 	} );
+
+	test( 'clears session results and does not analyze automatically after post navigation', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		const first = await requestUtils.createPost( {
+			title: 'First editor source',
+			content: unsavedContent,
+			status: 'draft',
+		} );
+		const second = await requestUtils.createPost( {
+			title: 'Second editor source',
+			content:
+				'<!-- wp:paragraph --><p>Unrelated second draft content.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+		} );
+		let analysisRequests = 0;
+		page.on( 'request', ( request ) => {
+			if (
+				request.url().includes( '/intertexere/v1/editor-suggestions' )
+			) {
+				analysisRequests += 1;
+			}
+		} );
+
+		await admin.editPost( first.id );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toBeVisible();
+		await expect.poll( () => analysisRequests ).toBe( 1 );
+
+		await admin.editPost( second.id );
+		await openSidebar( page );
+		await expect(
+			page.getByRole( 'heading', {
+				name: candidateTitle,
+				exact: true,
+			} )
+		).toHaveCount( 0 );
+		await page.waitForTimeout( 100 );
+		expect( analysisRequests ).toBe( 1 );
+	} );
 } );
