@@ -398,15 +398,21 @@ final class Insertion_Validation {
 			return 'clear';
 		}
 
-		$cursor      = 0;
-		$text_cursor = 0;
 		foreach ( $matches[0] as $index => $match ) {
-			$text_cursor += self::length( self::plain_text( substr( $html, $cursor, $match[1] - $cursor ) ) );
-			$link_text   = self::plain_text( $matches[1][ $index ][0] );
-			$link_start  = $text_cursor;
-			$link_end    = $link_start + self::length( $link_text );
-			$cursor      = $match[1] + strlen( $match[0] );
-			$text_cursor = $link_end;
+			$start_marker = "\x1Fintertexere-link-start-{$index}\x1F";
+			$end_marker   = "\x1Fintertexere-link-end-{$index}\x1F";
+			$marked_html  = substr( $html, 0, $match[1] )
+				. $start_marker . $matches[1][ $index ][0] . $end_marker
+				. substr( $html, $match[1] + strlen( $match[0] ) );
+			$marked_text  = self::plain_text( $marked_html );
+			$start_byte   = strpos( $marked_text, $start_marker );
+			$end_byte     = false === $start_byte ? false : strpos( $marked_text, $end_marker, $start_byte + strlen( $start_marker ) );
+			if ( false === $start_byte || false === $end_byte ) {
+				return 'overlap';
+			}
+			$link_start = self::length( substr( $marked_text, 0, $start_byte ) );
+			$link_text  = substr( $marked_text, $start_byte + strlen( $start_marker ), $end_byte - $start_byte - strlen( $start_marker ) );
+			$link_end   = $link_start + self::length( $link_text );
 
 			if ( $start >= $link_end || $end <= $link_start ) {
 				continue;

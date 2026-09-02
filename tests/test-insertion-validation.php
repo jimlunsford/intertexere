@@ -367,8 +367,8 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		wp_update_post(
 			array(
 				'ID'           => $this->target_id,
-				'post_title'   => 'Alpha Alpha',
-				'post_content' => '<p>Alpha Alpha supporting context.</p>',
+				'post_title'   => 'Insertion Insertion',
+				'post_content' => '<p>Insertion Insertion supporting context.</p>',
 			)
 		);
 		Indexer::refresh_post( $this->target_id );
@@ -379,12 +379,12 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		);
 		foreach ( $partial_cases as $label => $href ) {
 			$this->draft = $this->draft_with_markup(
-				'<!-- wp:paragraph --><p>Alpha <a href="' . esc_url( $href ) . '">Alpha Alpha</a>.</p><!-- /wp:paragraph -->'
+				'<!-- wp:paragraph --><p>Insertion <a href="' . esc_url( $href ) . '">Insertion Insertion</a>.</p><!-- /wp:paragraph -->'
 			);
-			$this->draft['title'] = 'Alpha Alpha';
+			$this->draft['title'] = 'Insertion Insertion';
 			$this->refresh_analysis();
 			$request = $this->request_payload();
-			$request['anchor']['exact_text'] = 'Alpha Alpha';
+			$request['anchor']['exact_text'] = 'Insertion Insertion';
 			$this->assertError( 'intertexere_insertion_link_overlap', Insertion_Validation::validate( $request ), $label );
 		}
 
