@@ -11,7 +11,7 @@ import {
 	createRequestGate,
 	visibleSuggestions,
 } from './request-state';
-import { buildSnapshot, clientHashInput, sha256 } from './snapshot';
+import { buildSnapshot } from './snapshot';
 import { AnalysisBody } from './components';
 import './style.scss';
 
@@ -99,23 +99,6 @@ export function EditorSuggestionsSidebar() {
 		} ) );
 
 		try {
-			const draftHash = await sha256( clientHashInput( snapshot ) );
-			const cached = Array.from( cache.current.values() ).find(
-				( item ) =>
-					item.postIdentity === requestedIdentity &&
-					item.draftHash === draftHash
-			);
-			if ( cached && gate.current.owns( requestToken ) ) {
-				setDismissed( new Set() );
-				setState( {
-					status: 'results',
-					response: cached.response,
-					error: '',
-					signature: requestedSignature,
-				} );
-				return;
-			}
-
 			const response = await apiFetch( {
 				path: settings.route,
 				method: 'POST',
@@ -139,6 +122,9 @@ export function EditorSuggestionsSidebar() {
 				draftHash: response.draft_hash,
 				response,
 			} );
+			if ( cache.current.size > 20 ) {
+				cache.current.delete( cache.current.keys().next().value );
+			}
 			setDismissed( new Set() );
 			setState( {
 				status: 'results',

@@ -218,6 +218,7 @@ The endpoint does not save a post, update metadata, write graph or index rows, e
 
 - No request runs on editor load or every keystroke.
 - The client keeps only a per-editor-session in-memory cache keyed by draft hash, post identity, algorithm version, and the active generations returned by the server.
+- An explicit Analyze or Refresh always reaches the server before results are treated as current. A cached generation identifier cannot prove that incremental index data, graph data, target eligibility, or current target metadata stayed unchanged, so the session cache never bypasses explicit revalidation.
 - The initial server implementation adds no persistent draft cache. A request-local object cache may deduplicate reads, but unsaved draft text is not written to options, transients, index rows, or graph rows.
 - Payload, token, query, candidate, scoring, and result counts are bounded as described above.
 - Only candidate IDs selected by bounded retrieval are loaded from the active content-index generation.
