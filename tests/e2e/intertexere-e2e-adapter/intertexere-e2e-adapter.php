@@ -27,7 +27,7 @@ add_action(
 				},
 				'callback'            => static function ( WP_REST_Request $request ): WP_REST_Response {
 					$mode = sanitize_key( (string) $request->get_param( 'mode' ) );
-					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed' ), true ) ) {
+					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure' ), true ) ) {
 						$mode = 'available';
 					}
 					update_option( 'intertexere_e2e_ai_mode', $mode, false );
@@ -51,6 +51,13 @@ add_filter(
 			}
 
 			public function generate( array $request ) {
+				if ( 'failure' === get_option( 'intertexere_e2e_ai_mode', 'available' ) ) {
+					return new WP_Error(
+						'prompt_network_error',
+						'secret provider detail',
+						array( 'status' => 503 )
+					);
+				}
 				if ( 'delayed' === get_option( 'intertexere_e2e_ai_mode', 'available' ) ) {
 					usleep( 800000 );
 				}

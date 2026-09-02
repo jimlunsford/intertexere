@@ -19,6 +19,10 @@ async function openSidebar( page ) {
 	).toBeVisible();
 }
 
+function editorSettings( page ) {
+	return page.getByLabel( 'Editor settings' );
+}
+
 test.describe( 'Intertexere read-only editor suggestions', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
 		await requestUtils.activatePlugin( 'intertexere' );
@@ -72,12 +76,21 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 				.textContent()
 		).toBe( deterministicScore );
 		expect( await page.getByText( 'Insert Link' ).count() ).toBe( 0 );
+		await page
+			.getByRole( 'button', { name: 'View deterministic suggestions' } )
+			.click();
+		await expect( page.getByText( /AI contextual rank:/ ) ).toHaveCount(
+			0
+		);
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect( page.getByText( /AI contextual rank:/ ) ).toBeVisible();
+		expect( aiRequests ).toBe( 1 );
 
 		await editor.setContent(
 			unsavedContent.replace( 'guide', 'changed guide' )
 		);
 		await expect(
-			page.getByText( /AI enhancement is stale/ )
+			editorSettings( page ).getByText( /AI enhancement is stale/ )
 		).toBeVisible();
 		expect( aiRequests ).toBe( 1 );
 	} );
@@ -86,7 +99,13 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		admin,
 		editor,
 		page,
+		requestUtils,
 	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'failure' },
+		} );
 		await admin.createNewPost( {
 			title: candidateTitle,
 			content: unsavedContent,
@@ -98,21 +117,15 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
 		).toBeVisible();
 
-		await page.route(
-			'**/intertexere/v1/editor-suggestions/ai-enhance',
-			async ( route ) => {
-				await route.fulfill( {
-					status: 503,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						code: 'intertexere_ai_network',
-						message: 'Provider unavailable',
-					} ),
-				} );
-			}
-		);
 		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
-		await expect( page.getByText( 'Provider unavailable' ) ).toBeVisible();
+		await expect(
+			editorSettings( page ).getByText(
+				'The configured AI provider could not be reached in time.'
+			)
+		).toBeVisible();
+		await expect( page.getByText( 'secret provider detail' ) ).toHaveCount(
+			0
+		);
 		await expect(
 			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
 		).toBeVisible();
@@ -161,7 +174,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			} )
 		).toBeVisible();
 		await expect(
-			page.getByText( /AI enhancement is disabled/ )
+			editorSettings( page ).getByText( /AI enhancement is disabled/ )
 		).toBeVisible();
 		expect(
 			await page
@@ -191,7 +204,9 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
 		).toBeVisible();
 		await expect(
-			page.getByText( /No compatible configured AI model/ )
+			editorSettings( page ).getByText(
+				/No compatible configured AI model/
+			)
 		).toBeVisible();
 		expect(
 			await page
@@ -229,12 +244,51 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			unsavedContent.replace( 'guide', 'changed guide' )
 		);
 		await expect(
-			page.getByText( /AI enhancement is stale/ )
+			editorSettings( page ).getByText( /AI enhancement is stale/ )
 		).toBeVisible();
 		await page.waitForTimeout( 1200 );
 		await expect( page.getByText( /AI contextual rank:/ ) ).toHaveCount(
 			0
 		);
+	} );
+
+	test( 'deterministic refresh invalidates an in-flight AI request', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'delayed' },
+		} );
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
+		).toBeVisible();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect(
+			page.getByRole( 'button', { name: /Enhancing with AI/ } )
+		).toBeVisible();
+		await page
+			.getByRole( 'button', { name: 'Refresh suggestions' } )
+			.click();
+		await expect(
+			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
+		).toBeVisible();
+		await page.waitForTimeout( 1200 );
+		await expect( page.getByText( /AI contextual rank:/ ) ).toHaveCount(
+			0
+		);
+		await expect(
+			page.getByRole( 'button', { name: 'Enhance with AI' } )
+		).toBeVisible();
 	} );
 
 	test( 'clears an enhanced overlay on post navigation', async ( {
@@ -297,9 +351,37 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		).toBe( contentBeforeAI );
 		await editor.saveDraft();
 		const saved = await requestUtils.rest( {
-			path: `/wp/v2/posts/${ source.id }?context=edit`,
+			path: `/wp/v2/posts/${ source.id }`,
+			params: { context: 'edit' },
 		} );
 		expect( saved.content.raw ).toBe( contentBeforeAI );
+	} );
+
+	test( 'keeps the normal WordPress preview flow after AI enhancement', async ( {
+		admin,
+		editor,
+		page,
+	} ) => {
+		await admin.createNewPost( {
+			title: 'AI preview source',
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect( page.getByText( /AI contextual rank:/ ) ).toBeVisible();
+
+		const preview = await editor.openPreviewPage();
+		await expect(
+			preview.getByText(
+				'Our deterministic WordPress performance guide explains predictable local analysis.'
+			)
+		).toBeVisible();
+		await expect(
+			preview.getByText( /Deterministic E2E enhancement/ )
+		).toHaveCount( 0 );
+		await preview.close();
 	} );
 
 	test( 'uses unsaved iframe-editor state only after a manual trigger and marks it stale', async ( {
@@ -481,7 +563,8 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		).toBeVisible();
 
 		const beforeSave = await requestUtils.rest( {
-			path: `/wp/v2/posts/${ saved.id }?context=edit`,
+			path: `/wp/v2/posts/${ saved.id }`,
+			params: { context: 'edit' },
 		} );
 		expect( beforeSave.content.raw ).toContain(
 			'Original database content.'
@@ -492,7 +575,8 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 
 		await editor.saveDraft();
 		const afterSave = await requestUtils.rest( {
-			path: `/wp/v2/posts/${ saved.id }?context=edit`,
+			path: `/wp/v2/posts/${ saved.id }`,
+			params: { context: 'edit' },
 		} );
 		expect( afterSave.content.raw ).toContain(
 			'predictable local analysis'

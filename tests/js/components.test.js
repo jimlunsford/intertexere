@@ -174,14 +174,14 @@ describe( 'AI controls', () => {
 					hasDeterministicResults
 				/>
 			);
-			expect(
-				screen.getByRole( 'button', {
-					name:
-						status === 'loading'
-							? /Enhancing with AI/
-							: /Enhance with AI/,
-				} )
-			).toBeInTheDocument();
+			const button = screen.getByRole( 'button', {
+				name:
+					status === 'loading'
+						? /Enhancing with AI/
+						: /Enhance with AI/,
+			} );
+			expect( button ).toBeInTheDocument();
+			expect( button.disabled ).toBe( status === 'loading' );
 		}
 	);
 
