@@ -339,7 +339,7 @@ final class AI_Enhancement {
 
 	/** @return array<string, mixed> */
 	private static function response_schema( array $candidate_keys, array $unit_keys ): array {
-		$anchor = array(
+		$anchor_object = array(
 			'type'                 => 'object',
 			'additionalProperties' => false,
 			'properties'           => array(
@@ -349,6 +349,9 @@ final class AI_Enhancement {
 			),
 			'required'             => array( 'unit_key', 'exact_text', 'occurrence' ),
 		);
+		$anchor_schema = empty( $unit_keys )
+			? array( 'type' => 'null' )
+			: array( 'anyOf' => array( array( 'type' => 'null' ), $anchor_object ) );
 
 		return array(
 			'type'                 => 'object',
@@ -366,8 +369,8 @@ final class AI_Enhancement {
 							'candidate_key' => array( 'type' => 'string', 'enum' => $candidate_keys ),
 							'decision'      => array( 'type' => 'string', 'enum' => array( 'keep', 'drop' ) ),
 							'rank'          => array( 'type' => array( 'integer', 'null' ) ),
-							'reason'        => array( 'type' => 'string', 'maxLength' => self::MAX_REASON_CHARACTERS ),
-							'anchor'        => array( 'anyOf' => array( array( 'type' => 'null' ), $anchor ) ),
+							'reason'        => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => self::MAX_REASON_CHARACTERS ),
+							'anchor'        => $anchor_schema,
 						),
 						'required'             => array( 'candidate_key', 'decision', 'rank', 'reason', 'anchor' ),
 					),

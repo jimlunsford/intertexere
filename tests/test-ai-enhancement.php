@@ -152,6 +152,18 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->assertSame( 20.0, AI_Enhancement::PROVIDER_TIMEOUT_SECONDS );
 	}
 
+	public function test_title_only_draft_requires_a_null_anchor_schema(): void {
+		$this->draft['units'] = array();
+		$this->analysis = Editor_Suggestions::analyze( $this->draft );
+		$this->assertNotEmpty( $this->analysis['suggestions'] );
+		$this->adapter->result = $this->valid_raw( null );
+		$result = AI_Enhancement::enhance( $this->request() );
+
+		$this->assertIsArray( $result );
+		$anchor_schema = $this->adapter->last_request['response_schema']['properties']['evaluations']['items']['properties']['anchor'];
+		$this->assertSame( array( 'type' => 'null' ), $anchor_schema );
+	}
+
 	public function test_complete_response_validation_rejects_duplicate_missing_and_invalid_ranks(): void {
 		$second_id = self::factory()->post->create(
 			array(
@@ -226,11 +238,13 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $changed )->get_error_code() );
 		$this->assertSame( 0, $this->adapter->calls );
 
+		$original_index_generation = get_option( Schema::GENERATION_OPTION );
 		add_action( 'intertexere_ai_before_final_revalidation', static function (): void {
 			update_option( Schema::GENERATION_OPTION, wp_generate_uuid4(), false );
 		} );
 		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
 		remove_all_actions( 'intertexere_ai_before_final_revalidation' );
+		update_option( Schema::GENERATION_OPTION, $original_index_generation, false );
 
 		$this->analysis = Editor_Suggestions::analyze( $this->draft );
 		add_action( 'intertexere_ai_before_final_revalidation', static function (): void {
@@ -265,10 +279,20 @@ class Intertexere_AI_Enhancement_Test extends WP_UnitTestCase {
 		$this->draft['units'][0]['markup'] = '<!-- wp:paragraph --><p>Focused Recovery Practice creates durable proof. <a href="' . esc_url( $future_url ) . '">Future destination</a>.</p><!-- /wp:paragraph -->';
 		$this->analysis = Editor_Suggestions::analyze( $this->draft );
 		$this->assertNotEmpty( $this->analysis['suggestions'] );
-		add_action( 'intertexere_ai_before_final_revalidation', function (): void {
-			wp_update_post( array( 'ID' => $this->target_id, 'post_name' => 'future-ai-target' ) );
+		add_action( 'intertexere_ai_before_final_revalidation', function () use ( $future_url ): void {
+			add_filter(
+				'post_link',
+				function ( string $permalink, \WP_Post $post ) use ( $future_url ): string {
+					return $this->target_id === (int) $post->ID ? $future_url : $permalink;
+				},
+				10,
+				2
+			);
 		} );
-		$this->assertSame( 'intertexere_ai_stale', AI_Enhancement::enhance( $this->request() )->get_error_code() );
+		$result = AI_Enhancement::enhance( $this->request() );
+		remove_all_filters( 'post_link' );
+		$this->assertWPError( $result );
+		$this->assertSame( 'intertexere_ai_stale', $result->get_error_code() );
 	}
 
 	public function test_deleted_target_after_provider_is_stale(): void {

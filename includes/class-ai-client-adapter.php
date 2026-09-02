@@ -29,13 +29,19 @@ final class WordPress_AI_Client_Adapter implements AI_Client_Adapter {
 	private $prepared_builder;
 
 	public function is_supported( array $request ): bool {
+		$this->prepared_builder = null;
 		$builder = $this->build( $request );
 		if ( ! $builder instanceof \WP_AI_Client_Prompt_Builder ) {
 			return false;
 		}
 
 		$this->prepared_builder = $builder;
-		return true === $builder->is_supported_for_text_generation();
+		try {
+			return true === $builder->is_supported_for_text_generation();
+		} catch ( \Throwable $throwable ) {
+			$this->prepared_builder = null;
+			return false;
+		}
 	}
 
 	public function generate( array $request ) {
@@ -45,7 +51,12 @@ final class WordPress_AI_Client_Adapter implements AI_Client_Adapter {
 		if ( ! $builder instanceof \WP_AI_Client_Prompt_Builder ) {
 			$builder = $this->build( $request );
 		}
-		if ( ! $builder instanceof \WP_AI_Client_Prompt_Builder || true !== $builder->is_supported_for_text_generation() ) {
+		try {
+			$supported = $builder instanceof \WP_AI_Client_Prompt_Builder && true === $builder->is_supported_for_text_generation();
+		} catch ( \Throwable $throwable ) {
+			return new \WP_Error( 'intertexere_ai_invalid_configuration', 'The AI prompt could not be configured safely.' );
+		}
+		if ( ! $supported ) {
 			return new \WP_Error( 'intertexere_ai_no_compatible_model', 'No compatible configured AI model is available.' );
 		}
 
@@ -82,16 +93,20 @@ final class WordPress_AI_Client_Adapter implements AI_Client_Adapter {
 			return null;
 		}
 
-		$options = \WordPress\AiClient\Providers\Http\DTO\RequestOptions::fromArray(
-			array(
-				\WordPress\AiClient\Providers\Http\DTO\RequestOptions::KEY_TIMEOUT => AI_Enhancement::PROVIDER_TIMEOUT_SECONDS,
-			)
-		);
+		try {
+			$options = \WordPress\AiClient\Providers\Http\DTO\RequestOptions::fromArray(
+				array(
+					\WordPress\AiClient\Providers\Http\DTO\RequestOptions::KEY_TIMEOUT => AI_Enhancement::PROVIDER_TIMEOUT_SECONDS,
+				)
+			);
 
-		return wp_ai_client_prompt( (string) $request['prompt'] )
-			->using_system_instruction( (string) $request['system_instruction'] )
-			->using_max_tokens( AI_Enhancement::MAX_OUTPUT_TOKENS )
-			->using_request_options( $options )
-			->as_json_response( $request['response_schema'] );
+			return wp_ai_client_prompt( (string) $request['prompt'] )
+				->using_system_instruction( (string) $request['system_instruction'] )
+				->using_max_tokens( AI_Enhancement::MAX_OUTPUT_TOKENS )
+				->using_request_options( $options )
+				->as_json_response( $request['response_schema'] );
+		} catch ( \Throwable $throwable ) {
+			return null;
+		}
 	}
 }

@@ -14,6 +14,10 @@ class Intertexere_Settings_Test extends WP_UnitTestCase {
 		update_option( Settings::OPTION, Settings::defaults(), false );
 		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
 		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
+		delete_option( Indexer::LOCK_OPTION );
+		delete_option( Indexer::RERUN_OPTION );
+		delete_option( Link_Graph::LOCK_OPTION );
+		delete_option( Link_Graph::RERUN_OPTION );
 	}
 
 	public function test_ai_defaults_off_and_complete_sanitization_preserves_schema_shape(): void {
@@ -29,7 +33,7 @@ class Intertexere_Settings_Test extends WP_UnitTestCase {
 	public function test_focused_merges_preserve_unrelated_settings(): void {
 		$current = Settings::merge( array( 'enable_ai_enhancement' => true ), Settings::defaults() );
 		$this->assertTrue( $current['enable_ai_enhancement'] );
-		$this->assertSame( array( 'post', 'page' ), $current['eligible_post_types'] );
+		$this->assertSame( array( 'page', 'post' ), $current['eligible_post_types'] );
 
 		$eligibility = Settings::merge( array( 'eligible_post_types' => array( 'page' ) ), $current );
 		$this->assertTrue( $eligibility['enable_ai_enhancement'] );
