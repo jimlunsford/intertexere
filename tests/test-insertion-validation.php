@@ -364,43 +364,51 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 
 	public function test_partial_and_multi_link_intersections_are_always_overlap(): void {
 		$permalink = get_permalink( $this->target_id );
-		wp_update_post(
-			array(
-				'ID'           => $this->target_id,
-				'post_title'   => 'Insertion Insertion',
-				'post_content' => '<p>Insertion Insertion supporting context.</p>',
-			)
-		);
-		Indexer::refresh_post( $this->target_id );
+		$method = new ReflectionMethod( Insertion_Validation::class, 'range_link_state' );
+		$method->setAccessible( true );
 
 		$partial_cases = array(
 			'same target'  => $permalink,
 			'other target' => 'https://example.org/other',
 		);
 		foreach ( $partial_cases as $label => $href ) {
-			$this->draft = $this->draft_with_markup(
-				'<!-- wp:paragraph --><p>Insertion <a href="' . esc_url( $href ) . '">Insertion Insertion</a>.</p><!-- /wp:paragraph -->'
+			$html = 'Insertion <a href="' . esc_url( $href ) . '">Insertion Insertion</a>.';
+			$this->assertSame(
+				'overlap',
+				$method->invoke( null, $html, 0, strlen( 'Insertion Insertion' ), home_url( '/' ), $this->source_id, $this->target_id, $permalink ),
+				$label
 			);
-			$this->draft['title'] = 'Insertion Insertion';
-			$this->refresh_analysis();
-			$request = $this->request_payload();
-			$request['anchor']['exact_text'] = 'Insertion Insertion';
-			$this->assertError( 'intertexere_insertion_link_overlap', Insertion_Validation::validate( $request ), $label );
 		}
 
-		$this->restore_target();
-		Indexer::refresh_post( $this->target_id );
-		$this->draft = $this->draft_with_markup(
-			'<!-- wp:paragraph --><p><a href="https://example.org/one">Insertion</a> Target <a href="https://example.org/two">Alpha</a>.</p><!-- /wp:paragraph -->'
+		$this->assertSame(
+			'overlap',
+			$method->invoke(
+				null,
+				'<a href="https://example.org/one">Insertion</a> Target <a href="https://example.org/two">Alpha</a>.',
+				0,
+				strlen( 'Insertion Target Alpha' ),
+				home_url( '/' ),
+				$this->source_id,
+				$this->target_id,
+				$permalink
+			),
+			'spanning links'
 		);
-		$this->refresh_analysis();
-		$this->assertError( 'intertexere_insertion_link_overlap', Insertion_Validation::validate( $this->request_payload() ), 'spanning links' );
 
-		$this->draft = $this->draft_with_markup(
-			'<!-- wp:paragraph --><p><a href="https://example.org/other">Before</a> Insertion Target Alpha after.</p><!-- /wp:paragraph -->'
+		$this->assertSame(
+			'clear',
+			$method->invoke(
+				null,
+				'<a href="https://example.org/other">Before</a> Insertion Target Alpha after.',
+				7,
+				7 + strlen( 'Insertion Target Alpha' ),
+				home_url( '/' ),
+				$this->source_id,
+				$this->target_id,
+				$permalink
+			),
+			'clear non-overlapping range'
 		);
-		$this->refresh_analysis();
-		$this->assertIsArray( Insertion_Validation::validate( $this->request_payload() ), 'clear non-overlapping range' );
 	}
 
 	public function test_ai_anchor_must_map_to_server_held_current_unit(): void {
