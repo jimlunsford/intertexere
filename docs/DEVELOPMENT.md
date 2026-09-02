@@ -138,7 +138,7 @@ Milestone 0.5 is implemented on `feature/0.5-link-insertion` using the pinned Wo
 
 The validation endpoint is read-only. Tests must prove zero post, revision, autosave, index, graph, option, transient, and schema mutation. Client tests must prove a second local state check after the server response and that late responses, navigation, draft edits, repeated clicks, analysis actions, and AI actions cannot mutate newer state.
 
-Implementation work belongs on `feature/0.5-link-insertion`. The public version moves from 0.4.0 to 0.5.0 only after the full acceptance contract passes on the reviewed head. Schema remains version 2.
+Implementation work belongs on `feature/0.5-link-insertion`. The accepted implementation head uses public version 0.5.0. Schema remains version 2.
 
 ## 10. Content Mutation Requires Stronger Testing
 

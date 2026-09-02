@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1 through 0.4 are complete. Milestone 0.5 is implemented on its review branch and pending the final independent-review gate.
+Milestones 0.1 through 0.4 are complete. The milestone 0.5 implementation has passed its full acceptance matrix on the review branch and is pending independent review before merge.
 
 ## Product Identity
 

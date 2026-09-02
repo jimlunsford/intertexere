@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the implemented architecture for milestone 0.5. Milestones 0.1 through 0.4 are complete. The 0.5 implementation is on `feature/0.5-link-insertion` and remains subject to the final acceptance and independent-review gate.
+This document defines the implemented architecture for milestone 0.5. Milestones 0.1 through 0.4 are complete. The 0.5 implementation has passed the full acceptance matrix on `feature/0.5-link-insertion` and remains subject to independent review before merge.
 
 ## Goal
 

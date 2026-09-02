@@ -29,7 +29,7 @@ Specific API usage is verified against the pinned WordPress 7.1 runtime and Core
 
 ## Development Status
 
-Milestones 0.1 through 0.4 are complete. Milestone 0.5 is implemented on `feature/0.5-link-insertion` and is undergoing its final WordPress 7.1 acceptance gate. It adds explicit, one-at-a-time local draft insertion while retaining deterministic analysis and current WordPress target state as authority.
+Milestones 0.1 through 0.4 are complete. The milestone 0.5 implementation on `feature/0.5-link-insertion` has passed its full WordPress 7.1 acceptance matrix and is pending independent review before merge. Plugin version is 0.5.0 and schema remains version 2.
 
 The initial roadmap is:
 
