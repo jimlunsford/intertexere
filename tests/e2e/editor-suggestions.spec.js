@@ -369,6 +369,9 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		} );
 		await openSidebar( page );
 		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
+		).toBeVisible();
 		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
 		await expect( page.getByText( /AI contextual rank:/ ) ).toBeVisible();
 
