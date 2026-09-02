@@ -124,6 +124,11 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 	} );
 
 	test.beforeEach( async ( { requestUtils } ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'available' },
+		} );
 		await requestUtils.deleteAllPosts();
 		await requestUtils.createPost( {
 			title: candidateTitle,
@@ -131,6 +136,171 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			status: 'publish',
 			date_gmt: new Date().toISOString().replace( /\.\d{3}Z$/, '' ),
 		} );
+	} );
+
+	test( 'keeps deterministic suggestions available when AI is disabled', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.deactivatePlugin( 'intertexere-e2e-adapter' );
+		try {
+			await admin.createNewPost( {
+				title: candidateTitle,
+				content: unsavedContent,
+				showWelcomeGuide: false,
+			} );
+			await openSidebar( page );
+			await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+			await expect(
+				page.getByRole( 'heading', {
+					name: candidateTitle,
+					exact: true,
+				} )
+			).toBeVisible();
+			await expect(
+				page.getByText( /AI enhancement is disabled/ )
+			).toBeVisible();
+			expect(
+				await page
+					.getByRole( 'button', { name: 'Enhance with AI' } )
+					.count()
+			).toBe( 0 );
+		} finally {
+			await requestUtils.activatePlugin( 'intertexere-e2e-adapter' );
+		}
+	} );
+
+	test( 'keeps deterministic suggestions available when no compatible model exists', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'unavailable' },
+		} );
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
+		).toBeVisible();
+		await expect(
+			page.getByText( /No compatible configured AI model/ )
+		).toBeVisible();
+		expect(
+			await page
+				.getByRole( 'button', { name: 'Enhance with AI' } )
+				.count()
+		).toBe( 0 );
+	} );
+
+	test( 'marks an in-flight enhancement stale and ignores its late response', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'delayed' },
+		} );
+		await admin.createNewPost( {
+			title: candidateTitle,
+			content: unsavedContent,
+			showWelcomeGuide: false,
+		} );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await expect(
+			page.getByRole( 'heading', { name: candidateTitle, exact: true } )
+		).toBeVisible();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect(
+			page.getByRole( 'button', { name: /Enhancing with AI/ } )
+		).toBeVisible();
+		await editor.setContent(
+			unsavedContent.replace( 'guide', 'changed guide' )
+		);
+		await expect(
+			page.getByText( /AI enhancement is stale/ )
+		).toBeVisible();
+		await page.waitForTimeout( 1200 );
+		await expect( page.getByText( /AI contextual rank:/ ) ).toHaveCount(
+			0
+		);
+	} );
+
+	test( 'clears an enhanced overlay on post navigation', async ( {
+		admin,
+		page,
+		requestUtils,
+	} ) => {
+		const first = await requestUtils.createPost( {
+			title: 'First AI source',
+			content: unsavedContent,
+			status: 'draft',
+		} );
+		const second = await requestUtils.createPost( {
+			title: 'Second AI source',
+			content:
+				'<!-- wp:paragraph --><p>Unrelated content.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+		} );
+		await admin.editPost( first.id );
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect( page.getByText( /AI contextual rank:/ ) ).toBeVisible();
+
+		await admin.editPost( second.id );
+		await openSidebar( page );
+		await expect( page.getByText( /AI contextual rank:/ ) ).toHaveCount(
+			0
+		);
+		await expect(
+			page.getByRole( 'button', { name: 'Analyze draft' } )
+		).toBeVisible();
+	} );
+
+	test( 'saves exactly the edited content after AI enhancement', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		const source = await requestUtils.createPost( {
+			title: 'AI save source',
+			content:
+				'<!-- wp:paragraph --><p>Original.</p><!-- /wp:paragraph -->',
+			status: 'draft',
+		} );
+		await admin.editPost( source.id );
+		await editor.setContent( unsavedContent );
+		const contentBeforeAI = await page.evaluate( () =>
+			window.wp.data.select( 'core/editor' ).getEditedPostContent()
+		);
+		await openSidebar( page );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		await page.getByRole( 'button', { name: 'Enhance with AI' } ).click();
+		await expect( page.getByText( /AI contextual rank:/ ) ).toBeVisible();
+		expect(
+			await page.evaluate( () =>
+				window.wp.data.select( 'core/editor' ).getEditedPostContent()
+			)
+		).toBe( contentBeforeAI );
+		await editor.saveDraft();
+		const saved = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ source.id }?context=edit`,
+		} );
+		expect( saved.content.raw ).toBe( contentBeforeAI );
 	} );
 
 	test( 'uses unsaved iframe-editor state only after a manual trigger and marks it stale', async ( {
