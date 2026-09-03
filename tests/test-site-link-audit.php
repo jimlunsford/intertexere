@@ -456,6 +456,66 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		remove_filter( 'intertexere_is_post_eligible', $exclude, 10 );
 	}
 
+	public function test_source_deletion_and_permalink_races_fail_closed(): void {
+		global $wpdb;
+
+		$source = $this->post( 'Deleted source race', '<a href="/audit-source-delete-race/">Unknown</a>' );
+		add_action(
+			'intertexere_audit_before_final_object_authority',
+			static function () use ( $wpdb, $source ): void {
+				$wpdb->delete( $wpdb->posts, array( 'ID' => $source ), array( '%d' ) );
+				clean_post_cache( $source );
+			},
+			10,
+			0
+		);
+		$this->assertSame( 'stale', $this->page( 'unavailable', $source )['status'] );
+		remove_all_actions( 'intertexere_audit_before_final_object_authority' );
+
+		$target = $this->post( 'Permalink race target' );
+		add_action(
+			'intertexere_audit_before_final_object_authority',
+			static function () use ( $target ): void {
+				wp_update_post( array( 'ID' => $target, 'post_name' => 'permalink-race-changed' ) );
+			},
+			10,
+			0
+		);
+		$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'] );
+	}
+
+	public function test_concurrent_new_finding_waits_for_refresh_and_nested_read_shares_no_state(): void {
+		$target = $this->post( 'Stable selected orphan' );
+		$new_target = 0;
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			function () use ( &$new_target ): void {
+				$new_target = $this->post( 'Concurrent new orphan' );
+			},
+			10,
+			0
+		);
+		$result = $this->page( 'orphans', $target );
+		$this->assertSame( 'current', $result['status'] );
+		$this->assertSame( array( $target ), wp_list_pluck( $result['rows'], 'post_id' ) );
+		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
+		$this->assertSame( 'current', $this->page( 'orphans', $new_target )['status'] );
+
+		$nested = null;
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			static function () use ( &$nested ): void {
+				$nested = Site_Link_Audit::overview();
+			},
+			10,
+			0
+		);
+		$outer = $this->page( 'orphans', $target );
+		$this->assertSame( 'current', $outer['status'] );
+		$this->assertIsArray( $nested );
+		$this->assertSame( 'current', $nested['status'] );
+	}
+
 	public function test_overview_uses_one_aggregate_statement_and_detects_cutover(): void {
 		$this->post( 'Overview target' );
 		$aggregate_queries = array();
@@ -516,13 +576,46 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 	public function test_strict_input_permissions_and_row_action_capabilities(): void {
 		$this->assertWPError( Site_Link_Audit::parse_request( array( 'page' => 'intertexere-site-link-audit', 'category' => 'other' ) ) );
 		$this->assertWPError( Site_Link_Audit::parse_request( array( 'page' => 'intertexere-site-link-audit', 'per_page' => '51' ) ) );
+		$this->assertWPError( Site_Link_Audit::parse_request( array( 'page' => 'intertexere-site-link-audit', 'post_type' => 'attachment' ) ) );
 		$this->assertWPError( Site_Link_Audit::parse_request( array( 'page' => 'intertexere-site-link-audit', 'search' => '%unbounded%' ) ) );
+		$this->assertWPError( Site_Link_Audit::parse_request( array( 'page' => 'intertexere-site-link-audit', 'category' => array( 'orphans' ) ) ) );
 		$this->assertWPError( Site_Link_Audit::parse_request( array( 'page' => 'intertexere-site-link-audit', 'unknown' => '1' ) ) );
 
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'editor' ) ) );
 		$this->assertSame( 'forbidden', Site_Link_Audit::overview()['status'] );
 		$this->expectException( WPDieException::class );
 		Admin::render_audit_page();
+	}
+
+	public function test_authorized_read_only_role_sees_only_current_permitted_row_actions(): void {
+		$target = $this->post( 'Capability-filtered target' );
+		add_role(
+			'intertexere_audit_viewer',
+			'Audit Viewer',
+			array(
+				'read' => true,
+				Admin::CAPABILITY => true,
+			)
+		);
+		$user = self::factory()->user->create( array( 'role' => 'intertexere_audit_viewer' ) );
+		wp_set_current_user( $user );
+		$result = $this->page( 'orphans', $target );
+		$this->assertSame( 'current', $result['status'] );
+		$this->assertTrue( $result['rows'][0]['can_view'] );
+		$this->assertFalse( $result['rows'][0]['can_edit'] );
+		remove_role( 'intertexere_audit_viewer' );
+	}
+
+	public function test_database_failure_returns_safe_unavailable_state(): void {
+		$this->post( 'Database failure target' );
+		$break_classification = static function ( string $query ): string {
+			return false !== strpos( $query, 'AS evidence_one' ) ? 'SELECT this is not valid SQL' : $query;
+		};
+		add_filter( 'query', $break_classification );
+		$result = $this->page( 'orphans' );
+		remove_filter( 'query', $break_classification );
+		$this->assertSame( 'unavailable', $result['status'] );
+		$this->assertArrayNotHasKey( 'rows', $result );
 	}
 
 	public function test_audit_is_read_only_and_changes_no_plugin_or_wordpress_state(): void {
@@ -533,9 +626,14 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$before = array(
 			'content' => get_post_field( 'post_content', $source ),
 			'posts' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts}" ),
+			'revisions' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'revision'" ),
+			'autosaves' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'revision' AND post_name LIKE '%-autosave-%'" ),
 			'index' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::table_name() ),
 			'sources' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::graph_sources_table_name() ),
 			'edges' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::link_edges_table_name() ),
+			'metadata' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->postmeta}" ),
+			'taxonomy' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->term_relationships}" ),
+			'transients' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE '_transient_%'" ),
 			'generations' => $this->generations(),
 			'settings' => get_option( Settings::OPTION ),
 			'schema' => get_option( Schema::VERSION_OPTION ),
@@ -545,9 +643,14 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$after = array(
 			'content' => get_post_field( 'post_content', $source ),
 			'posts' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts}" ),
+			'revisions' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'revision'" ),
+			'autosaves' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'revision' AND post_name LIKE '%-autosave-%'" ),
 			'index' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::table_name() ),
 			'sources' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::graph_sources_table_name() ),
 			'edges' => (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Schema::link_edges_table_name() ),
+			'metadata' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->postmeta}" ),
+			'taxonomy' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->term_relationships}" ),
+			'transients' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE '_transient_%'" ),
 			'generations' => $this->generations(),
 			'settings' => get_option( Settings::OPTION ),
 			'schema' => get_option( Schema::VERSION_OPTION ),

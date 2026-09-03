@@ -32,11 +32,24 @@ test.describe( 'Intertexere Site Link Audit', () => {
 			status: 'publish',
 			date_gmt: new Date().toISOString().replace( /\.\d{3}Z$/, '' ),
 		} );
-		const source = await requestUtils.createPost( {
-			title: 'Audit source fixture',
-			content: `<p><a href="${ target.link }">Thin target</a><a href="/missing-audit-e2e/">Unknown target</a></p>`,
+		const cleanupTarget = await requestUtils.createPost( {
+			title: 'Noncanonical target fixture',
+			content: '<p>Current canonical target.</p>',
 			status: 'publish',
 			date_gmt: new Date().toISOString().replace( /\.\d{3}Z$/, '' ),
+		} );
+		const source = await requestUtils.createPost( {
+			title: 'Audit source fixture',
+			content: '<p>Source awaiting audit links.</p>',
+			status: 'publish',
+			date_gmt: new Date().toISOString().replace( /\.\d{3}Z$/, '' ),
+		} );
+		await requestUtils.rest( {
+			path: `/wp/v2/posts/${ source.id }`,
+			method: 'POST',
+			data: {
+				content: `<p><a href="${ target.link }">Thin target one</a><a href="${ target.link }">Thin target two</a><a href="/missing-audit-e2e/">Unknown target</a><a href="${ source.link }">Self target</a><a href="/?p=${ cleanupTarget.id }&audit=1">Noncanonical target</a></p>`,
+			},
 		} );
 		const sourceBefore = await requestUtils.rest( {
 			path: `/wp/v2/posts/${ source.id }`,
@@ -86,6 +99,20 @@ test.describe( 'Intertexere Site Link Audit', () => {
 				name: 'Edit Content body orphan fixture',
 			} )
 		).toBeVisible();
+		await page
+			.getByRole( 'link', { name: 'View Content body orphan fixture' } )
+			.click();
+		await expect( page ).toHaveTitle( /Content body orphan fixture/ );
+		await page.goto(
+			`${ auditUrl }&category=orphans&search=${ orphan.id }`
+		);
+		await page
+			.getByRole( 'link', { name: 'Edit Content body orphan fixture' } )
+			.click();
+		await expect( page ).toHaveURL(
+			new RegExp( `post.php\\?post=${ orphan.id }&action=edit` )
+		);
+		await page.goto( auditUrl );
 
 		await page
 			.getByRole( 'link', { name: 'Thin inbound coverage' } )
@@ -107,6 +134,19 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		await page.getByRole( 'button', { name: 'Filter audit' } ).click();
 		await expect(
 			page.getByText( /Unresolved internal URL/ )
+		).toBeVisible();
+
+		await page.goto(
+			`${ auditUrl }&category=repeated&search=${ source.id }`
+		);
+		await expect( page.getByText( /2 occurrences/ ) ).toBeVisible();
+		await page.goto( `${ auditUrl }&category=self&search=${ source.id }` );
+		await expect( page.getByText( /its own post identity/ ) ).toBeVisible();
+		await page.goto(
+			`${ auditUrl }&category=noncanonical&search=${ source.id }`
+		);
+		await expect(
+			page.getByText( /representative URL differs/ )
 		).toBeVisible();
 		await expect(
 			page.getByRole( 'button', { name: /repair|fix|replace/i } )
