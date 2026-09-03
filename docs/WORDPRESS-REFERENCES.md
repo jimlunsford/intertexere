@@ -113,6 +113,9 @@ The 0.2 implementation also verifies query-style post IDs, current permalinks, r
 - List tables and native admin tables: https://developer.wordpress.org/reference/classes/wp_list_table/
 - Post edit links: https://developer.wordpress.org/reference/functions/get_edit_post_link/
 - Post view links: https://developer.wordpress.org/reference/functions/get_permalink/
+- Hierarchical page URI construction: https://developer.wordpress.org/reference/functions/get_page_uri/
+- Post category permalink dependencies: https://developer.wordpress.org/reference/functions/get_the_category/
+- User-cache priming for `%author%`: https://developer.wordpress.org/reference/functions/cache_users/
 
 The implemented 0.6 audit is a server-rendered Tools screen protected by the existing `manage_intertexere` capability. Read-only filters and generation-bound signed keyset cursors use authenticated native admin GET requests. No custom REST or Abilities transport is used.
 

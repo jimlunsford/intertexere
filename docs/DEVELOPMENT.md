@@ -144,7 +144,7 @@ Implementation work used `feature/0.5-link-insertion`. The accepted implementati
 
 Milestone 0.6 was implemented on `feature/0.6-site-link-audit` only after independent review approved `SITE-LINK-AUDIT.md` and `ACCEPTANCE-0.6.md`.
 
-The audit is server-rendered, on-demand, read-only, generation-bound, and keyset-paginated. It adds no audit JavaScript, persistence, REST route, or schema. Tests exercise bounded representative, 2,000-inbound, and 1,000-post/4,000-edge fixtures, record query, latency, and memory measurements on every supported PHP version, and retain the complete 0.1 through 0.5 regression matrix.
+The audit is server-rendered, on-demand, read-only, generation-bound, and keyset-paginated. It adds no audit JavaScript, persistence, REST route, or schema. Current permalink authority uses Core permalink functions only after bounded bulk priming for hierarchical ancestors, `%category%` terms, and `%author%` users; a dependency bound or database-dependent custom filter that cannot be proved fails unavailable. Noncanonical review is conservatively limited to a representative explicit Core query ID that still matches the current target. Tests exercise bounded representative, 2,000-inbound, 1,000-post/4,000-edge, nested-page, and category/author permalink fixtures, record query, latency, and memory measurements on every supported PHP version, and retain the complete 0.1 through 0.5 regression matrix.
 
 ## 10. Content Mutation Requires Stronger Testing
 

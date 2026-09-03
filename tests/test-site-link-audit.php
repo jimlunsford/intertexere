@@ -170,6 +170,12 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertSame( 'current', $query_result['status'] );
 		$this->assertCount( 1, $query_result['rows'] );
 		$this->assertSame( $target, $query_result['rows'][0]['target_post_id'] );
+		$page_target = $this->page_post( 'Explicit page identity target' );
+		$page_source = $this->post( 'Explicit page identity source', '<a href="/?page_id=' . $page_target . '&audit=1">Page target</a>' );
+		$page_result = $this->page( 'noncanonical', $page_source );
+		$this->assertSame( 'current', $page_result['status'] );
+		$this->assertCount( 1, $page_result['rows'] );
+		$this->assertSame( $page_target, $page_result['rows'][0]['target_post_id'] );
 
 		$other = $this->post( 'Other query identity' );
 		$mismatch_source = $this->post( 'Historical mismatch source', '<a href="/?p=' . $other . '">Other</a>' );
@@ -205,7 +211,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 
 		$overview = Site_Link_Audit::overview();
 		$this->assertSame( 'current', $overview['status'] );
-		$this->assertSame( 1, $overview['counts']['noncanonical'] );
+		$this->assertSame( 2, $overview['counts']['noncanonical'] );
 		$this->assertCount( 1, $this->page( 'noncanonical', $query_source )['rows'] );
 	}
 
