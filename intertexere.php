@@ -33,6 +33,7 @@ require_once INTERTEXERE_PATH . 'includes/class-ai-enhancement.php';
 require_once INTERTEXERE_PATH . 'includes/class-insertion-validation.php';
 require_once INTERTEXERE_PATH . 'includes/class-editor-rest.php';
 require_once INTERTEXERE_PATH . 'includes/class-editor-assets.php';
+require_once INTERTEXERE_PATH . 'includes/class-site-link-audit.php';
 require_once INTERTEXERE_PATH . 'includes/class-admin.php';
 require_once INTERTEXERE_PATH . 'includes/class-lifecycle.php';
 require_once INTERTEXERE_PATH . 'includes/class-plugin.php';

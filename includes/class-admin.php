@@ -26,6 +26,49 @@ final class Admin {
 			'intertexere',
 			array( self::class, 'render_page' )
 		);
+
+		add_management_page(
+			esc_html__( 'Intertexere Site Link Audit', 'intertexere' ),
+			esc_html__( 'Intertexere Site Link Audit', 'intertexere' ),
+			self::CAPABILITY,
+			'intertexere-site-link-audit',
+			array( self::class, 'render_audit_page' )
+		);
+	}
+
+	/**
+	 * Render the request-scoped, read-only Site Link Audit.
+	 */
+	public static function render_audit_page(): void {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_die( esc_html__( 'You are not allowed to view the Intertexere Site Link Audit.', 'intertexere' ), '', array( 'response' => 403 ) );
+		}
+
+		$request = Site_Link_Audit::parse_request( $_GET ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		?>
+		<div class="wrap">
+			<h1><?php echo esc_html__( 'Intertexere Site Link Audit', 'intertexere' ); ?></h1>
+			<p><?php echo esc_html__( 'Read-only findings from literal links in saved post content. Navigation, templates, template parts, widgets, theme chrome, shortcode output, dynamically rendered links, browser-rendered content, and external sites are not inspected.', 'intertexere' ); ?></p>
+			<p><?php echo esc_html__( 'Runtime eligibility filters are materialized when content is refreshed or rebuilt. Rebuild the index and graph after changing an arbitrary eligibility filter.', 'intertexere' ); ?></p>
+			<?php
+			if ( is_wp_error( $request ) ) {
+				self::render_audit_notice( 'error', $request->get_error_message() );
+				echo '</div>';
+				return;
+			}
+
+			self::render_audit_tabs( (string) $request['category'] );
+			if ( '' === $request['category'] ) {
+				self::render_audit_overview( Site_Link_Audit::overview() );
+				echo '</div>';
+				return;
+			}
+
+			self::render_audit_filters( $request );
+			self::render_audit_results( Site_Link_Audit::page( $request ), $request );
+			?>
+		</div>
+		<?php
 	}
 
 	public static function render_page(): void {
@@ -219,6 +262,165 @@ final class Admin {
 
 		wp_safe_redirect( add_query_arg( 'intertexere-updated', $scope, admin_url( 'tools.php?page=intertexere' ) ) );
 		exit;
+	}
+
+	/** @return array<string,string> */
+	private static function audit_categories(): array {
+		return array(
+			''             => __( 'Overview', 'intertexere' ),
+			'orphans'      => __( 'Content-body orphans', 'intertexere' ),
+			'thin'         => __( 'Thin inbound coverage', 'intertexere' ),
+			'unavailable'  => __( 'Unresolved and unavailable', 'intertexere' ),
+			'repeated'     => __( 'Repeated target links', 'intertexere' ),
+			'self'         => __( 'Self-links', 'intertexere' ),
+			'noncanonical' => __( 'Noncanonical opportunities', 'intertexere' ),
+		);
+	}
+
+	private static function render_audit_tabs( string $current ): void {
+		echo '<nav class="nav-tab-wrapper" aria-label="' . esc_attr__( 'Audit categories', 'intertexere' ) . '">';
+		foreach ( self::audit_categories() as $category => $label ) {
+			$url = add_query_arg(
+				array_filter(
+					array(
+						'page'     => 'intertexere-site-link-audit',
+						'category' => $category,
+					),
+					static function ( $value ): bool { return '' !== $value; }
+				),
+				admin_url( 'tools.php' )
+			);
+			$class = 'nav-tab' . ( $category === $current ? ' nav-tab-active' : '' );
+			echo '<a class="' . esc_attr( $class ) . '" href="' . esc_url( $url ) . '"' . ( $category === $current ? ' aria-current="page"' : '' ) . '>' . esc_html( $label ) . '</a>';
+		}
+		echo '</nav>';
+	}
+
+	/** @param array<string,mixed> $result Audit overview. */
+	private static function render_audit_overview( array $result ): void {
+		if ( 'current' !== $result['status'] ) {
+			self::render_audit_notice( 'stale' === $result['status'] ? 'warning' : 'error', (string) $result['message'] );
+			return;
+		}
+
+		echo '<h2>' . esc_html__( 'Active-generation findings', 'intertexere' ) . '</h2>';
+		echo '<p><a href="' . esc_url( admin_url( 'tools.php?page=intertexere' ) ) . '">' . esc_html__( 'View index and graph generation diagnostics', 'intertexere' ) . '</a></p>';
+		echo '<table class="widefat striped" style="max-width:900px"><thead><tr><th scope="col">' . esc_html__( 'Category', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Findings', 'intertexere' ) . '</th></tr></thead><tbody>';
+		foreach ( self::audit_categories() as $category => $label ) {
+			if ( '' === $category ) {
+				continue;
+			}
+			$url = add_query_arg( array( 'page' => 'intertexere-site-link-audit', 'category' => $category ), admin_url( 'tools.php' ) );
+			echo '<tr><th scope="row"><a href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a></th><td>' . esc_html( number_format_i18n( (int) $result['counts'][ $category ] ) ) . '</td></tr>';
+		}
+		echo '</tbody></table>';
+	}
+
+	/** @param array<string,mixed> $request Validated request. */
+	private static function render_audit_filters( array $request ): void {
+		$post_types = Settings::available_post_types();
+		?>
+		<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>" style="margin:16px 0;">
+			<input type="hidden" name="page" value="intertexere-site-link-audit">
+			<input type="hidden" name="category" value="<?php echo esc_attr( $request['category'] ); ?>">
+			<label for="intertexere-audit-post-type"><?php echo esc_html__( 'Post type', 'intertexere' ); ?></label>
+			<select id="intertexere-audit-post-type" name="post_type">
+				<option value=""><?php echo esc_html__( 'All eligible types', 'intertexere' ); ?></option>
+				<?php foreach ( Eligibility::post_types() as $post_type ) : ?>
+					<option value="<?php echo esc_attr( $post_type ); ?>" <?php selected( $request['post_type'], $post_type ); ?>><?php echo esc_html( isset( $post_types[ $post_type ] ) ? $post_types[ $post_type ]->labels->singular_name : $post_type ); ?></option>
+				<?php endforeach; ?>
+			</select>
+			<label for="intertexere-audit-search"><?php echo esc_html__( 'Exact post ID or slug', 'intertexere' ); ?></label>
+			<input id="intertexere-audit-search" name="search" type="search" maxlength="64" value="<?php echo esc_attr( $request['search'] ); ?>">
+			<label for="intertexere-audit-page-size"><?php echo esc_html__( 'Rows', 'intertexere' ); ?></label>
+			<select id="intertexere-audit-page-size" name="per_page">
+				<?php foreach ( array( 20, 50 ) as $size ) : ?>
+					<option value="<?php echo esc_attr( (string) $size ); ?>" <?php selected( (int) $request['page_size'], $size ); ?>><?php echo esc_html( (string) $size ); ?></option>
+				<?php endforeach; ?>
+			</select>
+			<?php submit_button( esc_html__( 'Filter audit', 'intertexere' ), 'secondary', '', false ); ?>
+			<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => 'intertexere-site-link-audit', 'category' => $request['category'] ), admin_url( 'tools.php' ) ) ); ?>"><?php echo esc_html__( 'Refresh audit', 'intertexere' ); ?></a>
+		</form>
+		<?php
+	}
+
+	/**
+	 * @param array<string,mixed> $result Audit result.
+	 * @param array<string,mixed> $request Validated request.
+	 */
+	private static function render_audit_results( array $result, array $request ): void {
+		if ( 'current' !== $result['status'] ) {
+			self::render_audit_notice( 'stale' === $result['status'] ? 'warning' : 'error', (string) $result['message'] );
+			return;
+		}
+		if ( empty( $result['rows'] ) ) {
+			self::render_audit_notice( 'info', __( 'No current findings match this category and filter.', 'intertexere' ) );
+			return;
+		}
+
+		echo '<table class="wp-list-table widefat fixed striped"><thead><tr><th scope="col">' . esc_html__( 'Finding', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Source or target', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Evidence', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Actions', 'intertexere' ) . '</th></tr></thead><tbody>';
+		foreach ( $result['rows'] as $row ) {
+			self::render_audit_row( $row, (string) $request['category'] );
+		}
+		echo '</tbody></table>';
+
+		if ( ! empty( $result['next_cursor'] ) ) {
+			$url = add_query_arg(
+				array(
+					'page'      => 'intertexere-site-link-audit',
+					'category'  => $request['category'],
+					'post_type' => $request['post_type'],
+					'search'    => $request['search'],
+					'per_page'  => $request['page_size'],
+					'cursor'    => $result['next_cursor'],
+				),
+				admin_url( 'tools.php' )
+			);
+			echo '<p class="tablenav"><a class="button" rel="next" href="' . esc_url( $url ) . '">' . esc_html__( 'Next page', 'intertexere' ) . '</a></p>';
+		}
+	}
+
+	/** @param array<string,mixed> $row Finding row. */
+	private static function render_audit_row( array $row, string $category ): void {
+		$post_category = in_array( $category, array( 'orphans', 'thin' ), true );
+		if ( $post_category ) {
+			$title = (string) $row['current_title'];
+			$reason = 'orphans' === $category
+				? __( 'Zero qualifying inbound sources were found in saved eligible content.', 'intertexere' )
+				: __( 'Exactly one qualifying inbound source was found in saved eligible content.', 'intertexere' );
+			$evidence = 'orphans' === $category ? __( 'Saturated inbound class: 0', 'intertexere' ) : __( 'Saturated inbound class: 1', 'intertexere' );
+			$actions = self::audit_post_actions( (int) $row['post_id'], $title, ! empty( $row['can_view'] ), ! empty( $row['can_edit'] ) );
+		} else {
+			$title = (string) $row['source_title'];
+			$reason = (string) $row['finding_reason'];
+			$evidence = (string) $row['normalized_url'];
+			if ( 'repeated' === $category ) {
+				$evidence .= ' · ' . sprintf( _n( '%d occurrence', '%d occurrences', (int) $row['occurrence_count'], 'intertexere' ), (int) $row['occurrence_count'] );
+			}
+			$actions = self::audit_post_actions( (int) $row['source_post_id'], $title, ! empty( $row['source_can_view'] ), ! empty( $row['source_can_edit'] ) );
+		}
+
+		echo '<tr><td>' . esc_html( $reason ) . '</td><th scope="row">' . esc_html( $title ) . '</th><td><code>' . esc_html( $evidence ) . '</code></td><td>' . $actions . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	private static function audit_post_actions( int $post_id, string $title, bool $can_view, bool $can_edit ): string {
+		$actions = array();
+		if ( $can_view ) {
+			$actions[] = '<a href="' . esc_url( get_permalink( $post_id ) ) . '">' . esc_html( sprintf( __( 'View %s', 'intertexere' ), $title ) ) . '</a>';
+		}
+		if ( $can_edit ) {
+			$edit = get_edit_post_link( $post_id, 'raw' );
+			if ( is_string( $edit ) && '' !== $edit ) {
+				$actions[] = '<a href="' . esc_url( $edit ) . '">' . esc_html( sprintf( __( 'Edit %s', 'intertexere' ), $title ) ) . '</a>';
+			}
+		}
+		return empty( $actions ) ? esc_html__( 'No permitted actions', 'intertexere' ) : implode( ' | ', $actions );
+	}
+
+	private static function render_audit_notice( string $type, string $message ): void {
+		$allowed = array( 'error', 'warning', 'success', 'info' );
+		$type = in_array( $type, $allowed, true ) ? $type : 'info';
+		echo '<div class="notice notice-' . esc_attr( $type ) . '"><p role="status">' . esc_html( $message ) . '</p></div>';
 	}
 
 	private static function authorize( string $nonce_action ): void {
