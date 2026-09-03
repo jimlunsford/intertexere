@@ -221,7 +221,7 @@ Schema remains version 2. 0.5 requires no migration, table, transient, option, i
 
 ## Explicit exclusions
 
-0.5 does not include automatic or bulk insertion, prose generation or rewriting, replacement anchor text, automatic save or publish, site audit UI, orphan or under-linked detection, broken-link repair, redirects, link removal, persistent recommendation learning, embeddings, vector storage, multisite, WooCommerce-specific behavior, or cloud services. Site auditing remains 0.6.
+0.5 does not include automatic or bulk insertion, prose generation or rewriting, replacement anchor text, automatic save or publish, site audit UI, orphan or under-linked detection, broken-link repair, redirects, link removal, persistent recommendation learning, embeddings, vector storage, multisite, WooCommerce-specific behavior, or cloud services. The separately implemented 0.6 audit does not expand insertion authority.
 
 ## Independent review gate
 

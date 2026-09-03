@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the planning architecture for milestone 0.6. Milestones 0.1 through 0.5 are complete. Milestone 0.6 is planned and is not implemented. Implementation must not begin until this planning work receives independent review.
+This document defines the implemented architecture for milestone 0.6. Milestones 0.1 through 0.6 are implemented. The implementation began only after the corrected planning contract received independent review.
 
 ## Goal
 
@@ -89,7 +89,7 @@ The audit uses separate, accurate categories:
 | Resolved target is private or otherwise unpublished | Unavailable target: not published |
 | Resolved target is password protected | Unavailable target: password protected |
 | Resolved target post type is unsupported, excluded, or no longer configured | Ineligible target |
-| Current permalink, supported query form, or retained old slug resolves to a current eligible post | Valid resolved link |
+| Current permalink, supported query form, or retained old slug resolves to a current eligible post | Valid resolved link; this does not by itself make every alternate form reportable as noncanonical |
 | Fragment-only link | Not an internal graph edge and not audited |
 | External host or non-web scheme | Not an internal graph edge and not audited |
 | Malformed href rejected by the graph parser | Not represented, so 0.6 does not call it broken |
@@ -100,7 +100,9 @@ The resolver never guesses. A deleted target can be called deleted only when dur
 
 A valid internal URL is not broken merely because it differs from the current canonical permalink. Relative, query-style, alternate host/scheme forms allowed by the resolver, and retained old slugs may still resolve correctly.
 
-Schema 2 aggregates URL variants into a source-to-target edge and retains only one representative normalized URL. Therefore 0.6 may show a **noncanonical URL review opportunity** only when the stored representative URL itself deterministically resolves to the current target and differs from the current canonical permalink after the established normalization rules. It must not claim that every occurrence is noncanonical or that replacement is required. If mixed URL variants aggregate into one edge, per-occurrence normalization reporting is unavailable. Adding exact occurrence storage or reparsing whole posts for cleanup is deferred and does not justify a schema change in the first audit release.
+Schema 2 aggregates URL variants into a source-to-target edge and retains only one representative normalized URL. Therefore 0.6 shows a **noncanonical URL review opportunity** only when the stored representative URL itself deterministically proves the current target and differs from the current canonical permalink. The bounded schema-2 proof is deliberately conservative: one and only one explicit Core query identity parameter (`p`, `page_id`, or `attachment_id`) must encode the exact durable/current target post ID. Historical `target_post_id` alone is never current representative-URL proof.
+
+Retained old-slug paths and other alternate path forms remain valid where the established resolver currently resolves them, but 0.6 omits them from noncanonical review because schema 2 cannot set-wise prove both retained-alias ownership and the absence of a different current object claiming that path within the audit budgets. Omission does not classify the URL as broken. The same prepared predicate governs category selection, final stable-edge-key reread, and the overview count. The audit must not claim that every occurrence is noncanonical or that replacement is required. If mixed URL variants aggregate into one edge, per-occurrence normalization reporting is unavailable. Adding exact occurrence storage or reparsing whole posts for cleanup is deferred and does not justify a schema change in the first audit release.
 
 ## Generation and cutover authority
 
@@ -135,6 +137,8 @@ Before displaying an actionable finding, the service bulk-loads only the posts s
 
 Relevant displayed source and target authority snapshots are compared again immediately before response construction. Deletion, type change, status change, password change, permalink change where displayed, source-state replacement, derived edge replacement, or generation cutover makes the page stale. If a fresh runtime-filter result for a displayed structurally eligible post disagrees with its materialized index or graph membership, the page is stale and directs the administrator to rebuild; it does not silently apply a different eligibility definition than the overview. Bulk retrieval is mandatory; per-row `get_post()` or resolver calls must not create an N+1 path.
 
+Before calling Core permalink functions for bounded displayed objects, the audit primes their required dependencies. Hierarchical post ancestors are discovered with one bounded set-based query to a maximum depth of 32 and their post objects are primed together. When the post permalink structure contains `%category%`, object-term relationships and category ancestors are primed in batches. When it contains `%author%`, required users are primed together. Each authority snapshot hashes the permalink structure plus relevant ancestor, category, and author evidence. A parent-slug or dependency change between snapshots makes the page stale. If the dependency depth exceeds the bound, or a custom permalink filter still performs database work during per-object permalink evaluation after priming, the page is unavailable instead of claiming exact current permalink authority.
+
 The audit does not bulk-load or call `Eligibility::is_eligible()` for every source that contributes only to an orphan or thin-inbound count, or for every target included in an overview aggregate. Those posts are governed by materialized source state or active-index membership plus SQL-verifiable current WordPress fields. Full runtime-filter evaluation is limited to the bounded posts displayed on a page and acts as a stale-generation detector, not a second classification rule.
 
 ## Bounded zero, one, or two-plus classification
@@ -151,7 +155,7 @@ A target with 500 historical inbound source IDs remains bounded. After a full re
 
 0.6 uses on-demand, server-rendered WordPress admin requests. It does not create a background audit run, completion record, transient, table, cron task, cancellation token, or persistent snapshot.
 
-- The overview shows exact active-generation category counts using the same qualifying-source SQL semantics as category pages. One prepared, set-based aggregate statement returns every overview category count from one database statement snapshot, so an incremental same-generation write cannot be observed by only some categories. It includes current SQL-verifiable WordPress fields but does not claim a fresh execution of arbitrary runtime eligibility filters.
+- The overview shows exact active-generation category counts using the same qualifying-source SQL semantics as category pages. One prepared, set-based aggregate statement returns every overview category count from one database statement snapshot, so an incremental same-generation write cannot be observed by only some categories. It includes current SQL-verifiable WordPress fields but does not claim a fresh execution of arbitrary runtime eligibility filters. Before either an overview or category page returns current authority, the service verifies the database session uses `READ COMMITTED`, `REPEATABLE READ`, or `SERIALIZABLE`; `READ UNCOMMITTED`, unknown values, and undetectable isolation state fail unavailable without counts or rows. The audit only reads session metadata and never changes isolation, starts a transaction, or acquires a lock.
 - A category page uses stable keyset pagination with a default page size of 20 and a hard maximum of 50.
 - Stable keys are post ID for post categories and `(source_post_id, target_identity_hash)` for edge categories.
 - Filtering is limited to a strict category, eligible post type, and bounded search term where a query plan remains indexed and testable.
@@ -160,13 +164,13 @@ A target with 500 historical inbound source IDs remains bounded. After a full re
 
 Because there is no durable audit run, start, progress, cancellation, and deactivation cleanup are unnecessary. “Refresh audit” means issue a new read against current active generations. It does not rebuild the index or graph.
 
-Overview counts must be labeled “Active-generation findings” and identify or link to the captured generation diagnostics. The overview aggregate must execute as one coherent read statement under the database engine's statement-level consistency or read-lock semantics; Intertexere adds no write lock or persistent snapshot. The service immediately compares both active generation options after that statement. A statement failure, unsupported coherence guarantee, or generation cutover returns stale or unavailable instead of counts. Same-generation writes committed before the statement may be included and writes not visible to that statement are excluded from every category consistently. Counts and category pages must call the same query service and cannot use different eligibility definitions.
+Overview counts must be labeled “Active-generation findings” and identify or link to the captured generation diagnostics. The overview aggregate must execute as one coherent read statement under InnoDB statement-level consistency and a supported current-session isolation mode; Intertexere adds no write lock or persistent snapshot. Compatibility-safe session-variable discovery accepts `transaction_isolation` or `tx_isolation`, and failure to determine one coherent supported value fails unavailable. The service immediately compares both active generation options after the aggregate statement. A statement failure, unsupported coherence guarantee, or generation cutover returns stale or unavailable instead of counts. Same-generation writes committed before the statement may be included and writes not visible to that statement are excluded from every category consistently. Counts and category pages must call the same query service and cannot use different eligibility definitions.
 
 ## Persistence and schema
 
 No audit table, option, transient, post metadata, taxonomy, or saved result is introduced. Existing active index and graph tables already provide the necessary bounded evidence. Audit results are calculated on demand and are not a second source of truth.
 
-Schema remains version 2. Plugin version remains 0.5.0 throughout planning. A future persisted audit snapshot would require a separately reviewed performance justification, migration, cleanup, supersession, and stale-result contract.
+Schema remains version 2. The completed implementation advances the plugin to 0.6.0 and adds no audit persistence. A future persisted audit snapshot would require a separately reviewed performance justification, migration, cleanup, supersession, and stale-result contract.
 
 ## WordPress admin interface
 
@@ -179,7 +183,7 @@ Add a dedicated **Intertexere Site Link Audit** screen under Tools, adjacent to 
 - Self-links
 - Noncanonical review opportunities, only where current schema evidence is sufficient
 
-Each row shows the source post, target when known, finding type, concise deterministic reason, relevant count or observed URL, current permalink where applicable, and properly labeled View and Edit actions. Empty, unavailable, stale, and error states are explicit. Severity is not expressed by color alone, and the screen has no score, urgency theater, bulk repair, or content-mutation control.
+Each row shows the source post, target when known, finding type, concise deterministic reason, relevant count or observed URL, and the current target permalink where applicable. Source and target View/Edit actions are labeled separately and independently capability-filtered. Unresolved rows state that no target identity is known, while missing targets retain only safe durable-ID evidence and no fabricated destination action. Empty, unavailable, stale, and error states are explicit. Severity is not expressed by color alone, and the screen has no score, urgency theater, bulk repair, or content-mutation control.
 
 The first release should be server-rendered. JavaScript is unnecessary unless implementation proves a specific accessibility or interaction need. If JavaScript is added, it may enhance filters or announcements but cannot become required for authority or introduce mutation.
 
@@ -203,6 +207,8 @@ Implementation must prove the following on WordPress 7.1 for PHP 7.4, 8.1, and 8
 - one result page of 20, including current WordPress revalidation: no more than 12 database queries and less than 750 ms;
 - maximum page of 50: no more than 14 database queries, less than 1.0 second, and less than 32 MiB incremental peak memory;
 - no per-finding post, permalink, eligibility, or URL-resolution query pattern;
+- 20-row and 50-row hierarchical-page fixtures use distinct nested ancestor chains, preserve Core permalink output, and remain inside the same query, latency, and memory budgets;
+- an ordinary-post fixture with distinct authors and nested categories under a `%author%/%category%` structure proves bounded dependency priming;
 - initial orphan/thin classification for one page uses one set-based database operation, and final saturated revalidation adds exactly one set-based operation for all displayed target IDs;
 - initial edge selection is followed by exactly one set-based final reread for all displayed edge keys;
 - neither final reread returns more than two contributing evidence IDs per target, issues a per-target or per-edge query, or materializes a complete inbound-source list;
@@ -250,4 +256,4 @@ Disabling Intertexere removes the audit UI and processing. It does not alter pos
 
 ## Implementation gate
 
-Implementation will use the proposed `feature/0.6-site-link-audit` branch only after this planning work receives independent review. It must pass [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md), the complete 0.1 through 0.5 regression suite, full production-diff review, and the WordPress 7.1/PHP matrix before version 0.6.0 may be assigned.
+Implementation uses `feature/0.6-site-link-audit`, a server-rendered Tools screen, prepared set-based reads, signed request-scoped cursors, one final saturated target reread or stable-edge-key reread, and separate current-object revalidation. No audit JavaScript was needed. Completion requires [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md), the complete 0.1 through 0.5 regression suite, full production-diff review, and the WordPress 7.1/PHP matrix.

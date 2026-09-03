@@ -29,7 +29,7 @@ Specific API usage is verified against the pinned WordPress 7.1 runtime and Core
 
 ## Development Status
 
-Milestones 0.1 through 0.5 are complete. Milestone 0.6, Site Link Audit, is fully planned but not implemented. Plugin version is 0.5.0 and schema remains version 2.
+Milestones 0.1 through 0.6 are implemented. Milestone 0.6 adds a deterministic, local, read-only Site Link Audit under WordPress Tools. Plugin version is 0.6.0 and schema remains version 2.
 
 The initial roadmap is:
 
@@ -50,7 +50,7 @@ The initial roadmap is:
 - [Read-Only Editor Suggestions design](docs/EDITOR-SUGGESTIONS.md)
 - [WordPress-Native AI Integration](docs/AI-INTEGRATION.md)
 - [Explicit Link Insertion plan](docs/LINK-INSERTION.md)
-- [Site Link Audit plan](docs/SITE-LINK-AUDIT.md)
+- [Site Link Audit](docs/SITE-LINK-AUDIT.md)
 - [0.1 Acceptance Criteria](docs/ACCEPTANCE-0.1.md)
 - [0.2 Acceptance Criteria](docs/ACCEPTANCE-0.2.md)
 - [0.3 Acceptance Criteria](docs/ACCEPTANCE-0.3.md)
