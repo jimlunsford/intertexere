@@ -516,7 +516,7 @@ final class Site_Link_Audit {
 		$type_marks = implode( ', ', array_fill( 0, count( $types ), '%s' ) );
 		$status_marks = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
 		$select = 'SELECT e.generation, e.source_post_id, e.target_identity_hash, e.target_post_id, e.normalized_url, e.occurrence_count, e.is_self,'
-			. ' gs.source_content_hash, gs.source_state, sp.post_title AS source_title, sp.post_type AS source_post_type, sp.post_status AS source_post_status,'
+			. ' gs.source_content_hash, gs.source_state, si.content_hash AS source_index_hash, sp.post_title AS source_title, sp.post_type AS source_post_type, sp.post_status AS source_post_status,'
 			. ' tp.post_title AS target_title, tp.post_type AS target_post_type, tp.post_status AS target_post_status, tp.post_password AS target_post_password,'
 			. ' ti.post_id AS target_index_post_id, ti.permalink AS target_index_permalink, ti.content_hash AS target_index_hash';
 		$from = ' FROM ' . Schema::link_edges_table_name() . ' e'
@@ -608,7 +608,7 @@ final class Site_Link_Audit {
 	private static function edge_signature( array $row ): string {
 		$fields = array(
 			'generation', 'source_post_id', 'target_identity_hash', 'target_post_id', 'normalized_url',
-			'occurrence_count', 'is_self', 'source_content_hash', 'source_state', 'source_post_type',
+			'occurrence_count', 'is_self', 'source_content_hash', 'source_state', 'source_index_hash', 'source_post_type',
 			'source_post_status', 'target_post_type', 'target_post_status', 'target_post_password',
 			'target_index_post_id', 'target_index_permalink', 'target_index_hash',
 		);
@@ -675,6 +675,7 @@ final class Site_Link_Audit {
 				'title'     => (string) get_the_title( $post ),
 				'permalink' => (string) get_permalink( $post ),
 				'eligible'  => Eligibility::is_eligible( $post ),
+				'graph_source_hash' => Link_Graph::current_source_hash( $post ),
 				'can_view'  => current_user_can( 'read_post', $id ),
 				'can_edit'  => current_user_can( 'edit_post', $id ),
 			);
@@ -692,7 +693,8 @@ final class Site_Link_Audit {
 				}
 				foreach ( $row['evidence'] as $evidence ) {
 					$source_id = (int) $evidence['source_post_id'];
-					if ( empty( $objects[ $source_id ]['exists'] ) || empty( $objects[ $source_id ]['eligible'] ) ) {
+					if ( empty( $objects[ $source_id ]['exists'] ) || empty( $objects[ $source_id ]['eligible'] )
+						|| (string) $objects[ $source_id ]['graph_source_hash'] !== (string) $evidence['source_content_hash'] ) {
 						return false;
 					}
 				}
@@ -700,7 +702,8 @@ final class Site_Link_Audit {
 			}
 
 			$source_id = (int) $row['source_post_id'];
-			if ( empty( $objects[ $source_id ]['exists'] ) || empty( $objects[ $source_id ]['eligible'] ) ) {
+			if ( empty( $objects[ $source_id ]['exists'] ) || empty( $objects[ $source_id ]['eligible'] )
+				|| (string) $objects[ $source_id ]['graph_source_hash'] !== (string) $row['source_content_hash'] ) {
 				return false;
 			}
 			$target_id = (int) ( $row['target_post_id'] ?? 0 );

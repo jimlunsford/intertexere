@@ -27,7 +27,7 @@ add_action(
 				},
 				'callback'            => static function ( WP_REST_Request $request ): WP_REST_Response {
 					$mode = sanitize_key( (string) $request->get_param( 'mode' ) );
-					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure', 'insertion-delayed' ), true ) ) {
+					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure', 'insertion-delayed', 'audit-stale', 'audit-unavailable' ), true ) ) {
 						$mode = 'available';
 					}
 					update_option( 'intertexere_e2e_ai_mode', $mode, false );
@@ -93,5 +93,42 @@ add_action(
 		if ( 'insertion-delayed' === get_option( 'intertexere_e2e_ai_mode', 'available' ) ) {
 			usleep( 800000 );
 		}
+	}
+);
+
+add_action(
+	'intertexere_audit_before_final_object_authority',
+	static function (): void {
+		if ( 'audit-stale' !== get_option( 'intertexere_e2e_ai_mode', 'available' ) ) {
+			return;
+		}
+		$original = get_option( \Intertexere\Schema::GRAPH_GENERATION_OPTION );
+		update_option( \Intertexere\Schema::GRAPH_GENERATION_OPTION, 'intertexere-e2e-stale', false );
+		add_action(
+			'shutdown',
+			static function () use ( $original ): void {
+				update_option( \Intertexere\Schema::GRAPH_GENERATION_OPTION, $original, false );
+			},
+			PHP_INT_MAX
+		);
+	}
+);
+
+add_filter(
+	'query',
+	static function ( string $query ): string {
+		static $checking_mode = false;
+		if ( $checking_mode ) {
+			return $query;
+		}
+		$checking_mode = true;
+		$mode = get_option( 'intertexere_e2e_ai_mode', 'available' );
+		$checking_mode = false;
+		if ( 'audit-unavailable' === $mode
+			&& false !== strpos( $query, 'AS orphans' )
+			&& false !== strpos( $query, 'AS noncanonical' ) ) {
+			return 'SELECT * FROM intertexere_e2e_missing_audit_table';
+		}
+		return $query;
 	}
 );

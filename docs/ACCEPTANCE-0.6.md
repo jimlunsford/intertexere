@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the planning and future implementation contract for milestone 0.6. The milestone is planned and not implemented. Planning leaves plugin version 0.5.0 and schema version 2 unchanged.
+This is the implementation acceptance contract for milestone 0.6. The implementation retains schema version 2 and advances the public plugin version to 0.6.0 only on the fully accepted implementation head.
 
 ## Scope gate
 

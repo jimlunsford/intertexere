@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the planning architecture for milestone 0.6. Milestones 0.1 through 0.5 are complete. Milestone 0.6 is planned and is not implemented. Implementation must not begin until this planning work receives independent review.
+This document defines the implemented architecture for milestone 0.6. Milestones 0.1 through 0.6 are implemented. The implementation began only after the corrected planning contract received independent review.
 
 ## Goal
 
@@ -166,7 +166,7 @@ Overview counts must be labeled “Active-generation findings” and identify or
 
 No audit table, option, transient, post metadata, taxonomy, or saved result is introduced. Existing active index and graph tables already provide the necessary bounded evidence. Audit results are calculated on demand and are not a second source of truth.
 
-Schema remains version 2. Plugin version remains 0.5.0 throughout planning. A future persisted audit snapshot would require a separately reviewed performance justification, migration, cleanup, supersession, and stale-result contract.
+Schema remains version 2. The completed implementation advances the plugin to 0.6.0 and adds no audit persistence. A future persisted audit snapshot would require a separately reviewed performance justification, migration, cleanup, supersession, and stale-result contract.
 
 ## WordPress admin interface
 
@@ -250,4 +250,4 @@ Disabling Intertexere removes the audit UI and processing. It does not alter pos
 
 ## Implementation gate
 
-Implementation will use the proposed `feature/0.6-site-link-audit` branch only after this planning work receives independent review. It must pass [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md), the complete 0.1 through 0.5 regression suite, full production-diff review, and the WordPress 7.1/PHP matrix before version 0.6.0 may be assigned.
+Implementation uses `feature/0.6-site-link-audit`, a server-rendered Tools screen, prepared set-based reads, signed request-scoped cursors, one final saturated target reread or stable-edge-key reread, and separate current-object revalidation. No audit JavaScript was needed. Completion requires [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md), the complete 0.1 through 0.5 regression suite, full production-diff review, and the WordPress 7.1/PHP matrix.

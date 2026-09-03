@@ -114,9 +114,9 @@ The 0.2 implementation also verifies query-style post IDs, current permalinks, r
 - Post edit links: https://developer.wordpress.org/reference/functions/get_edit_post_link/
 - Post view links: https://developer.wordpress.org/reference/functions/get_permalink/
 
-The planned 0.6 audit is a server-rendered Tools screen protected by the existing `manage_intertexere` capability. Read-only filters and generation-bound keyset cursors use authenticated native admin GET requests. No custom REST or Abilities transport is required for the initial audit.
+The implemented 0.6 audit is a server-rendered Tools screen protected by the existing `manage_intertexere` capability. Read-only filters and generation-bound signed keyset cursors use authenticated native admin GET requests. No custom REST or Abilities transport is used.
 
-`WP_List_Table` is marked private in Core documentation even though Core uses it extensively. Implementation must verify whether a simple native `widefat` table with explicit pagination is the more stable plugin contract before subclassing it. Either choice must preserve semantic table markup, escaped output, keyboard-accessible filters, and current per-post View/Edit capability checks.
+`WP_List_Table` is marked private in Core documentation even though Core uses it extensively. The implementation therefore uses a native `widefat` table with explicit keyset pagination, semantic markup, escaped output, keyboard-accessible filters, and current per-post View/Edit capability checks.
 
 ## Development Rule
 

@@ -361,6 +361,16 @@ final class Link_Graph {
 		return self::normalize_state( $state );
 	}
 
+	/**
+	 * Return the current deterministic graph-source version for audit authority.
+	 *
+	 * This is a read-only projection of the version already stored with each
+	 * graph source. It does not refresh or persist derived data.
+	 */
+	public static function current_source_hash( \WP_Post $post ): string {
+		return self::source_hash( $post );
+	}
+
 	private static function build_generation( string $generation ): void {
 		global $wpdb;
 

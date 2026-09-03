@@ -140,11 +140,11 @@ The validation endpoint is read-only. Tests must prove zero post, revision, auto
 
 Implementation work used `feature/0.5-link-insertion`. The accepted implementation head uses public version 0.5.0. Schema remains version 2.
 
-### 0.6 audit planning boundary
+### 0.6 audit implementation boundary
 
-Milestone 0.6 is planning-only until independent review approves `SITE-LINK-AUDIT.md` and `ACCEPTANCE-0.6.md`. Implementation is proposed for `feature/0.6-site-link-audit`, which must not be created during planning.
+Milestone 0.6 was implemented on `feature/0.6-site-link-audit` only after independent review approved `SITE-LINK-AUDIT.md` and `ACCEPTANCE-0.6.md`.
 
-The initial audit is server-rendered, on-demand, read-only, generation-bound, and keyset-paginated. It adds no audit persistence or schema. Implementation tests must exercise at least 125 posts and 500 edges plus a 1,000-post and 4,000-edge pagination fixture, record query, latency, and memory measurements on every supported PHP version, and retain the complete 0.1 through 0.5 regression matrix.
+The audit is server-rendered, on-demand, read-only, generation-bound, and keyset-paginated. It adds no audit JavaScript, persistence, REST route, or schema. Tests exercise bounded representative, 2,000-inbound, and 1,000-post/4,000-edge fixtures, record query, latency, and memory measurements on every supported PHP version, and retain the complete 0.1 through 0.5 regression matrix.
 
 ## 10. Content Mutation Requires Stronger Testing
 

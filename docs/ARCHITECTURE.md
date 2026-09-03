@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1 through 0.5 are complete. Milestone 0.6 is planned and not implemented.
+Milestones 0.1 through 0.6 are implemented. Schema remains version 2.
 
 ## Product Identity
 
@@ -161,7 +161,7 @@ The initial insertion allowlist is `core/paragraph`, `core/heading`, and `core/l
 
 ## Site Link Audit Boundary
 
-Milestone 0.6 is planned as a deterministic, read-only administration view over saved WordPress content and the exact active index and graph generations. It reports only conditions the current schema can prove: content-body orphans, exactly-one-source thin inbound coverage, repeated source-to-target occurrences, self-links, unresolved internal URLs, and resolved targets that current WordPress state makes unavailable or ineligible.
+Milestone 0.6 implements a deterministic, read-only administration view over saved WordPress content and the exact active index and graph generations. It reports only conditions the current schema can prove: content-body orphans, exactly-one-source thin inbound coverage, repeated source-to-target occurrences, self-links, unresolved internal URLs, and resolved targets that current WordPress state makes unavailable or ineligible.
 
 Each audit page binds both active generation IDs, uses schema 2 graph source states `ready` and `removed`, and counts only edges whose source has a `ready` row in the captured graph generation plus captured active-index membership and current SQL-verifiable WordPress authority. Full rebuild may omit an excluded source entirely; `removed` is an explicit noncontributing marker used by incremental lifecycle behavior, not a required row for every rebuild exclusion. The PHP runtime eligibility filter is materialized by the existing refresh and rebuild lifecycle; arbitrary filter changes require rebuild before structural counts change. Displayed posts receive full current revalidation, and a disagreement with materialized eligibility makes the page stale.
 
@@ -210,7 +210,7 @@ Intertexere follows normal WordPress security boundaries:
 4. Read-only deterministic editor suggestions, complete in 0.3
 5. AI Client and Connectors integration, complete in 0.4
 6. Explicit one-click link insertion, complete in 0.5
-7. Read-only site link audit, planned and not implemented in 0.6
+7. Read-only site link audit, implemented in 0.6
 
 Each stage must remain usable and testable without pulling later behavior forward.
 

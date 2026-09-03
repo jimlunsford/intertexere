@@ -176,6 +176,40 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		remove_filter( 'intertexere_is_post_eligible', $exclude, 10 );
 	}
 
+	public function test_full_rebuild_exclusion_is_absence_not_a_fabricated_removed_marker(): void {
+		global $wpdb;
+
+		$target = $this->post( 'Rebuild filter target' );
+		$source = $this->post( 'Rebuild filter source', '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>' );
+		$exclude = static function ( bool $eligible, WP_Post $post ) use ( $source ): bool {
+			return $post->ID === $source ? false : $eligible;
+		};
+		add_filter( 'intertexere_is_post_eligible', $exclude, 10, 2 );
+		$this->assertTrue( Indexer::rebuild() );
+		$this->assertTrue( Link_Graph::rebuild() );
+		$generations = $this->generations();
+		$this->assertNull(
+			$wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT source_state FROM ' . Schema::graph_sources_table_name() . ' WHERE generation = %s AND source_post_id = %d',
+					$generations['graph'],
+					$source
+				)
+			)
+		);
+		$this->assertNull(
+			$wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT post_id FROM ' . Schema::table_name() . ' WHERE generation = %s AND post_id = %d',
+					$generations['index'],
+					$source
+				)
+			)
+		);
+		$this->assertSame( 0, Site_Link_Audit::classify_targets( array( $target ), $generations )[ $target ]['class'] );
+		remove_filter( 'intertexere_is_post_eligible', $exclude, 10 );
+	}
+
 	public function test_same_generation_orphan_to_thin_race_returns_whole_page_stale(): void {
 		$target = $this->post( 'Race orphan target' );
 		$source = $this->post( 'Race source', '<p>No link yet.</p>' );
@@ -231,6 +265,67 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertSame( 'ready', $state );
 	}
 
+	public function test_orphan_zero_to_two_and_two_plus_reductions_are_saturated_and_detected(): void {
+		$target = $this->post( 'Saturated race target' );
+		$source_a = $this->post( 'Saturated source A', '<p>No link.</p>' );
+		$source_b = $this->post( 'Saturated source B', '<p>No link.</p>' );
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			static function () use ( $source_a, $source_b, $target ): void {
+				$link = '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>';
+				wp_update_post( array( 'ID' => $source_a, 'post_content' => $link ) );
+				wp_update_post( array( 'ID' => $source_b, 'post_content' => $link ) );
+			},
+			10,
+			0
+		);
+		$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'] );
+		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
+
+		$two_plus = Site_Link_Audit::classify_targets( array( $target ), $this->generations() );
+		$this->assertSame( 2, $two_plus[ $target ]['class'] );
+		$this->assertCount( 2, $two_plus[ $target ]['evidence'] );
+		wp_update_post( array( 'ID' => $source_b, 'post_content' => '<p>Removed.</p>' ) );
+		$this->assertSame( 1, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
+		wp_update_post( array( 'ID' => $source_a, 'post_content' => '<p>Removed.</p>' ) );
+		$this->assertSame( 0, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
+	}
+
+	public function test_ready_to_removed_and_noncanonical_url_replacement_races_fail_stale(): void {
+		global $wpdb;
+
+		$target = $this->post( 'Removed race target' );
+		$source = $this->post( 'Removed race source', '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>' );
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			static function () use ( $wpdb, $source ): void {
+				$wpdb->update(
+					Schema::graph_sources_table_name(),
+					array( 'source_state' => 'removed' ),
+					array( 'generation' => get_option( Schema::GRAPH_GENERATION_OPTION ), 'source_post_id' => $source ),
+					array( '%s' ),
+					array( '%s', '%d' )
+				);
+			},
+			10,
+			0
+		);
+		$this->assertSame( 'stale', $this->page( 'thin', $target )['status'] );
+		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
+		Link_Graph::refresh_post( $source );
+
+		wp_update_post( array( 'ID' => $source, 'post_content' => '<a href="/?p=' . $target . '&form=one">Target</a>' ) );
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			static function () use ( $source, $target ): void {
+				wp_update_post( array( 'ID' => $source, 'post_content' => '<a href="/?p=' . $target . '&form=two">Target</a>' ) );
+			},
+			10,
+			0
+		);
+		$this->assertSame( 'stale', $this->page( 'noncanonical', $source )['status'] );
+	}
+
 	public function test_edge_occurrence_unresolved_self_and_url_races_fail_stale(): void {
 		$target = $this->post( 'Edge race target' );
 		$source = $this->post( 'Edge race source', '<a href="' . esc_url( get_permalink( $target ) ) . '">One</a><a href="' . esc_url( get_permalink( $target ) ) . '">Two</a>' );
@@ -271,18 +366,20 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 
 	public function test_generation_and_current_object_races_fail_closed(): void {
 		$target = $this->post( 'Generation target' );
-		$original = get_option( Schema::GRAPH_GENERATION_OPTION );
-		add_action(
-			'intertexere_audit_before_final_object_authority',
-			static function (): void {
-				update_option( Schema::GRAPH_GENERATION_OPTION, 'audit-race-generation', false );
-			},
-			10,
-			0
-		);
-		$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'] );
-		remove_all_actions( 'intertexere_audit_before_final_object_authority' );
-		update_option( Schema::GRAPH_GENERATION_OPTION, $original, false );
+		foreach ( array( Schema::GENERATION_OPTION, Schema::GRAPH_GENERATION_OPTION ) as $option ) {
+			$original = get_option( $option );
+			add_action(
+				'intertexere_audit_before_final_object_authority',
+				static function () use ( $option ): void {
+					update_option( $option, 'audit-race-generation', false );
+				},
+				10,
+				0
+			);
+			$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'], $option );
+			remove_all_actions( 'intertexere_audit_before_final_object_authority' );
+			update_option( $option, $original, false );
+		}
 
 		add_action(
 			'intertexere_audit_before_final_object_authority',
@@ -293,6 +390,51 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 			0
 		);
 		$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'] );
+	}
+
+	public function test_deletion_status_password_type_and_runtime_eligibility_races_fail_closed(): void {
+		global $wpdb;
+
+		$mutations = array(
+			'deleted' => static function ( int $target ) use ( $wpdb ): void {
+				$wpdb->delete( $wpdb->posts, array( 'ID' => $target ), array( '%d' ) );
+				clean_post_cache( $target );
+			},
+			'status' => static function ( int $target ): void {
+				wp_update_post( array( 'ID' => $target, 'post_status' => 'draft' ) );
+			},
+			'password' => static function ( int $target ): void {
+				wp_update_post( array( 'ID' => $target, 'post_password' => 'changed' ) );
+			},
+			'type' => static function ( int $target ) use ( $wpdb ): void {
+				$wpdb->update( $wpdb->posts, array( 'post_type' => 'attachment' ), array( 'ID' => $target ), array( '%s' ), array( '%d' ) );
+				clean_post_cache( $target );
+			},
+		);
+		foreach ( $mutations as $label => $mutation ) {
+			$target = $this->post( 'Object race ' . $label );
+			add_action(
+				'intertexere_audit_before_final_object_authority',
+				static function () use ( $mutation, $target ): void { $mutation( $target ); },
+				10,
+				0
+			);
+			$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'], $label );
+			remove_all_actions( 'intertexere_audit_before_final_object_authority' );
+		}
+
+		$target = $this->post( 'Runtime race target' );
+		$exclude = static function ( bool $eligible, WP_Post $post ) use ( $target ): bool {
+			return $post->ID === $target ? false : $eligible;
+		};
+		add_action(
+			'intertexere_audit_before_final_object_authority',
+			static function () use ( $exclude ): void { add_filter( 'intertexere_is_post_eligible', $exclude, 10, 2 ); },
+			10,
+			0
+		);
+		$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'] );
+		remove_filter( 'intertexere_is_post_eligible', $exclude, 10 );
 	}
 
 	public function test_overview_uses_one_aggregate_statement_and_detects_cutover(): void {
@@ -410,6 +552,130 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		}
 	}
 
+	public function test_two_thousand_inbound_edges_saturate_at_two_and_final_race_stays_bounded(): void {
+		global $wpdb;
+
+		$target = $this->post( 'High degree target' );
+		$target_url = (string) get_permalink( $target );
+		$sources = $this->bulk_sources( 2000, '<a href="' . esc_url( $target_url ) . '">High degree target</a>' );
+		$generation = (string) get_option( Schema::GRAPH_GENERATION_OPTION );
+		$edge_rows = array();
+		foreach ( $sources as $source_id ) {
+			$edge_rows[] = array(
+				$generation,
+				$source_id,
+				hash( 'sha256', 'post:' . $target ),
+				$target,
+				$target_url,
+				1,
+				0,
+				current_time( 'mysql', true ),
+			);
+		}
+		$this->bulk_insert(
+			Schema::link_edges_table_name(),
+			array( 'generation', 'source_post_id', 'target_identity_hash', 'target_post_id', 'normalized_url', 'occurrence_count', 'is_self', 'indexed_at_gmt' ),
+			array( '%s', '%d', '%s', '%d', '%s', '%d', '%d', '%s' ),
+			$edge_rows
+		);
+
+		$filter_calls = 0;
+		$counter = static function ( bool $eligible ) use ( &$filter_calls ): bool {
+			++$filter_calls;
+			return $eligible;
+		};
+		add_filter( 'intertexere_is_post_eligible', $counter );
+		$query_start = get_num_queries();
+		$time_start = microtime( true );
+		$memory_start = memory_get_usage( true );
+		$initial = Site_Link_Audit::classify_targets( array( $target ), $this->generations() );
+		$this->assertSame( 2, $initial[ $target ]['class'] );
+		$this->assertCount( 2, $initial[ $target ]['evidence'] );
+		$this->assertSame( 0, $filter_calls );
+
+		$keep = (int) end( $sources );
+		$wpdb->query(
+			$wpdb->prepare(
+				'DELETE FROM ' . Schema::link_edges_table_name() . ' WHERE generation = %s AND target_post_id = %d AND source_post_id <> %d',
+				$generation,
+				$target,
+				$keep
+			)
+		);
+		$final = Site_Link_Audit::classify_targets( array( $target ), $this->generations() );
+		$elapsed = round( ( microtime( true ) - $time_start ) * 1000, 3 );
+		$query_count = get_num_queries() - $query_start;
+		$memory_delta = max( 0, memory_get_usage( true ) - $memory_start );
+		remove_filter( 'intertexere_is_post_eligible', $counter );
+
+		$this->assertSame( 1, $final[ $target ]['class'] );
+		$this->assertCount( 1, $final[ $target ]['evidence'] );
+		$this->assertSame( 0, $filter_calls );
+		$this->assertLessThanOrEqual( 3, $query_count );
+		$this->assertLessThan( 1000, $elapsed );
+		$this->assertLessThan( 32 * MB_IN_BYTES, $memory_delta );
+		$ready = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . Schema::graph_sources_table_name() . ' WHERE generation = %s AND source_state = %s',
+				$generation,
+				'ready'
+			)
+		);
+		$this->assertSame( 2000, $ready, 'The edge-removal race must leave every source ready.' );
+		fwrite( STDOUT, sprintf( "\n0.6 2,000-inbound fixture: %d audit queries, %.3f ms, %d bytes, 2 then 1 evidence class\n", $query_count, $elapsed, $memory_delta ) );
+	}
+
+	public function test_one_thousand_posts_four_thousand_edges_use_keyset_pages_without_materialization(): void {
+		$targets = array();
+		for ( $i = 0; $i < 4; ++$i ) {
+			$targets[] = $this->post( 'Large target ' . $i );
+		}
+		$content = '';
+		foreach ( $targets as $target ) {
+			$content .= '<a href="/?p=' . $target . '&audit=1">Target</a>';
+		}
+		$sources = $this->bulk_sources( 1000, $content );
+		$generation = (string) get_option( Schema::GRAPH_GENERATION_OPTION );
+		$edge_rows = array();
+		foreach ( $sources as $source_id ) {
+			foreach ( $targets as $target ) {
+				$url = home_url( '/?p=' . $target . '&audit=1' );
+				$edge_rows[] = array( $generation, $source_id, hash( 'sha256', 'post:' . $target ), $target, $url, 1, 0, current_time( 'mysql', true ) );
+			}
+		}
+		$this->bulk_insert(
+			Schema::link_edges_table_name(),
+			array( 'generation', 'source_post_id', 'target_identity_hash', 'target_post_id', 'normalized_url', 'occurrence_count', 'is_self', 'indexed_at_gmt' ),
+			array( '%s', '%d', '%s', '%d', '%s', '%d', '%d', '%s' ),
+			$edge_rows
+		);
+
+		$first_request = $this->request( 'noncanonical', 50 );
+		$first = Site_Link_Audit::page( $first_request );
+		$this->assertSame( 'current', $first['status'] );
+		$this->assertCount( 50, $first['rows'] );
+		$this->assertNotEmpty( $first['next_cursor'] );
+		$this->assertLessThanOrEqual( 14, $first['metrics']['query_count'] );
+		$this->assertLessThan( 1000, $first['metrics']['elapsed_ms'] );
+		$this->assertLessThan( 32 * MB_IN_BYTES, $first['metrics']['memory_delta'] );
+
+		$second_request = Site_Link_Audit::parse_request(
+			array(
+				'page' => 'intertexere-site-link-audit',
+				'category' => 'noncanonical',
+				'per_page' => '50',
+				'cursor' => $first['next_cursor'],
+			)
+		);
+		$second = Site_Link_Audit::page( $second_request );
+		$this->assertSame( 'current', $second['status'] );
+		$this->assertCount( 50, $second['rows'] );
+		$first_keys = array_map( static function ( array $row ): string { return $row['source_post_id'] . ':' . $row['target_identity_hash']; }, $first['rows'] );
+		$second_keys = array_map( static function ( array $row ): string { return $row['source_post_id'] . ':' . $row['target_identity_hash']; }, $second['rows'] );
+		$this->assertSame( array(), array_intersect( $first_keys, $second_keys ) );
+		fwrite( STDOUT, sprintf( "\n0.6 1,000-post/4,000-edge fixture: page 1 %d queries %.3f ms, page 2 %d queries %.3f ms\n", $first['metrics']['query_count'], $first['metrics']['elapsed_ms'], $second['metrics']['query_count'], $second['metrics']['elapsed_ms'] ) );
+	}
+
 	private function post( string $title, string $content = '<p>Audit fixture content.</p>', string $status = 'publish' ): int {
 		$post_id = self::factory()->post->create(
 			array(
@@ -423,6 +689,83 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		Indexer::refresh_post( $post_id );
 		Link_Graph::refresh_post( $post_id );
 		return $post_id;
+	}
+
+	/**
+	 * Materialize a large saved-post/index/source fixture without exercising the
+	 * unrelated per-post lifecycle inside the measured audit request.
+	 *
+	 * @return int[]
+	 */
+	private function bulk_sources( int $count, string $content ): array {
+		global $wpdb;
+
+		$first_id = (int) $wpdb->get_var( "SELECT COALESCE(MAX(ID), 0) + 100 FROM {$wpdb->posts}" );
+		$ids = range( $first_id, $first_id + $count - 1 );
+		$now = current_time( 'mysql', true );
+		$post_rows = array();
+		foreach ( $ids as $id ) {
+			$post_rows[] = array(
+				$id, $this->administrator_id, $now, $now, $content, 'Bulk audit source ' . $id, '', 'publish',
+				'closed', 'closed', '', 'bulk-audit-source-' . $id, '', '', $now, $now, '', 0,
+				home_url( '/?p=' . $id ), 0, 'post', '', 0,
+			);
+		}
+		$this->bulk_insert(
+			$wpdb->posts,
+			array( 'ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title', 'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password', 'post_name', 'to_ping', 'pinged', 'post_modified', 'post_modified_gmt', 'post_content_filtered', 'post_parent', 'guid', 'menu_order', 'post_type', 'post_mime_type', 'comment_count' ),
+			array( '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%d', '%s', '%s', '%d' ),
+			$post_rows
+		);
+		_prime_post_caches( $ids, false, false );
+
+		$index_generation = (string) get_option( Schema::GENERATION_OPTION );
+		$graph_generation = (string) get_option( Schema::GRAPH_GENERATION_OPTION );
+		$index_rows = array();
+		$source_rows = array();
+		foreach ( $ids as $id ) {
+			$post = get_post( $id );
+			$permalink = (string) get_permalink( $post );
+			$index_rows[] = array(
+				$id, $index_generation, 'post', 'publish', $now, $permalink, 'Bulk audit source ' . $id,
+				'', 'Bulk audit source content', '[]', '[]', hash( 'sha256', 'index:' . $id ), $now,
+			);
+			$source_rows[] = array( $graph_generation, $id, Link_Graph::current_source_hash( $post ), 'ready', $now );
+		}
+		$this->bulk_insert(
+			Schema::table_name(),
+			array( 'post_id', 'generation', 'post_type', 'post_status', 'post_modified_gmt', 'permalink', 'title', 'excerpt', 'normalized_content', 'headings', 'taxonomies', 'content_hash', 'indexed_at_gmt' ),
+			array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ),
+			$index_rows
+		);
+		$this->bulk_insert(
+			Schema::graph_sources_table_name(),
+			array( 'generation', 'source_post_id', 'source_content_hash', 'source_state', 'indexed_at_gmt' ),
+			array( '%s', '%d', '%s', '%s', '%s' ),
+			$source_rows
+		);
+		return $ids;
+	}
+
+	/**
+	 * @param string[]                 $columns Column names controlled by tests.
+	 * @param string[]                 $formats wpdb placeholders.
+	 * @param array<int,array<int,mixed>> $rows Values.
+	 */
+	private function bulk_insert( string $table, array $columns, array $formats, array $rows ): void {
+		global $wpdb;
+
+		foreach ( array_chunk( $rows, 100 ) as $chunk ) {
+			$tuples = array();
+			$args = array();
+			foreach ( $chunk as $row ) {
+				$tuples[] = '(' . implode( ', ', $formats ) . ')';
+				$args = array_merge( $args, $row );
+			}
+			$sql = 'INSERT INTO ' . $table . ' (`' . implode( '`, `', $columns ) . '`) VALUES ' . implode( ', ', $tuples );
+			$result = $wpdb->query( $wpdb->prepare( $sql, $args ) );
+			$this->assertNotFalse( $result, $wpdb->last_error );
+		}
 	}
 
 	/** @return array<string,string> */

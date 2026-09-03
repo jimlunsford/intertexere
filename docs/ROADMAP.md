@@ -184,7 +184,7 @@ Acceptance direction:
 
 ## 0.6 Site Link Audit
 
-Status: planned and not implemented. See [Site Link Audit](SITE-LINK-AUDIT.md) and [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md).
+Status: implemented. See [Site Link Audit](SITE-LINK-AUDIT.md) and [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md).
 
 Goal: extend the same index and graph into a maintenance workflow for existing content.
 
