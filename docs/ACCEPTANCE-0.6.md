@@ -25,6 +25,8 @@ The implementation must contain no automatic repair, link insertion, replacement
 - [ ] Schema 2 source state is limited to `ready` and `removed`; production audit SQL never refers to a nonexistent `current` state.
 - [ ] A contributing inbound edge must belong to the captured graph generation and join a source row from that generation with `source_state = 'ready'`.
 - [ ] A `removed` source row never contributes.
+- [ ] A graph source absent from a full replacement generation never contributes; full rebuild is not required to write a `removed` marker for an excluded candidate.
+- [ ] A source absent from qualifying active-index rows never contributes, and index tombstones remain replacement-generation concurrency markers rather than a durable eligibility state.
 - [ ] A contributing source also has a live row in the captured index generation and passes current SQL-verifiable WordPress existence, type, published-status, password, revision, and autosave checks.
 - [ ] `intertexere_is_post_eligible` is materialized when index and graph rows are refreshed or rebuilt; it is not re-executed across every inbound source during an audit request.
 - [ ] The UI discloses that arbitrary runtime-filter changes require source refresh or index and graph rebuild before structural counts reflect them.
@@ -48,26 +50,34 @@ The implementation must contain no automatic repair, link insertion, replacement
 - [ ] Graph cutover before response returns a stale result and no findings.
 - [ ] In-progress replacement generations are never read before cutover.
 - [ ] A later page cannot continue with generation IDs that are no longer active.
+- [ ] Generation identity is not treated as a complete request snapshot because incremental source and edge replacement can occur inside active generations.
 - [ ] Only displayed source and target objects are bulk loaded and checked with full `Eligibility::is_eligible()`, including runtime exclusion filters, plus current permalink where displayed.
 - [ ] Current graph source-state evidence remains `ready` for displayed contributing sources in the captured graph generation.
-- [ ] Relevant authority is rechecked immediately before response construction.
-- [ ] Source or target changes during calculation fail stale or suppress the invalid finding without returning stale state as current.
+- [ ] Immediately before response construction, one bounded set-based final reread revalidates all derived evidence for the displayed rows.
+- [ ] Final derived-evidence revalidation and current WordPress-object revalidation are separate required checks, followed by final active-generation option comparison.
+- [ ] A source or target change during calculation makes the whole page stale rather than returning a mixture of initial and final evidence.
 - [ ] Current revalidation introduces no N+1 post, permalink, eligibility, or resolver path.
 - [ ] A `ready` to `removed` source-state replacement during calculation fails stale or prevents the obsolete finding from being returned as current.
+- [ ] A `ready` to `ready` source replacement with changed content hash or edges is detected even though graph generation and source-state value are unchanged.
 
 ## Bounded inbound classification and overview counts
 
 - [ ] Orphan and thin classification uses saturated cardinality: zero, one, or two-plus.
 - [ ] One set-based prepared SQL operation classifies every target on a bounded page; no per-target query is permitted.
+- [ ] One additional set-based prepared SQL operation reruns saturated classification for every displayed target immediately before response construction.
+- [ ] The final class and any displayed evidence IDs must match initial selection; zero to one, zero to two-plus, one to zero, one to two-plus, two-plus to one, and two-plus to zero all make the page stale.
 - [ ] Classification joins the captured graph generation, `ready` source rows, captured active-index membership, and current SQL-verifiable WordPress source fields.
 - [ ] The query uses the implemented target and generation/source-state indexes and stops retaining evidence after two distinct qualifying sources per target.
 - [ ] PHP receives no complete inbound-source list and at most two evidence source IDs per target, meaning at most 40 IDs for a 20-row page and 100 for a 50-row page.
 - [ ] There is no bound-exhausted or inconclusive state for runtime-filter evaluation because that filter's decision is materialized at source refresh or rebuild, not evaluated across sources at audit time.
 - [ ] A target with 2,000 inbound edges remains within query, latency, and memory budgets and does not trigger 2,000 `Eligibility::is_eligible()` or filter calls during audit.
-- [ ] Filter exclusions materialized before cutover correctly change two-plus to exactly one and exactly one to zero.
+- [ ] Filter exclusions materialized before cutover as absent graph/index membership correctly change two-plus to exactly one and exactly one to zero; incremental `removed` markers remain an additional noncontributing state.
 - [ ] If filter behavior changes after materialization without refresh or rebuild, the audit retains and labels the active-generation result rather than presenting it as instantaneous filter authority.
 - [ ] A fresh runtime-filter mismatch for a displayed post produces stale/rebuild-required state and never silently changes the category-page definition relative to the overview.
-- [ ] Overview values are exact active-generation counts using the same service and eligibility semantics as category pages.
+- [ ] Every edge page performs one final set-based reread of displayed stable edge keys, required `ready` source-state evidence, captured active-index membership, and current SQL-verifiable WordPress source fields, then compares every graph field material to the finding, including source content hash where available.
+- [ ] A missing, replaced, or reclassified edge, changed occurrence count, URL evidence, self-link flag, or non-`ready` source makes the page stale without a per-edge query.
+- [ ] Overview values are exact active-generation counts using the same service and eligibility semantics as category pages, and all category counts come from one coherent prepared aggregate statement.
+- [ ] A same-generation write cannot appear in only some overview categories; the single read statement either includes or excludes it consistently before the final generation check.
 - [ ] Overview labels counts as active-generation findings and shows unavailable or stale instead of a number when generation authority or performance bounds cannot be proved.
 
 ## Execution, pagination, and persistence
@@ -76,6 +86,7 @@ The implementation must contain no automatic repair, link insertion, replacement
 - [ ] The default result size is 20 and the hard maximum is 50.
 - [ ] Post categories paginate by stable post-ID keyset.
 - [ ] Edge categories paginate by stable `(source_post_id, target_identity_hash)` keyset.
+- [ ] A concurrent new finding need not appear on the current request-scoped page, but every finding returned must still satisfy its category at final revalidation.
 - [ ] No unbounded offset pagination or entire-site PHP materialization is used.
 - [ ] Strict allowlists bound category, post type, search, page size, generation, and cursor input.
 - [ ] Two simultaneous audit reads share no mutable audit-run state.
@@ -125,33 +136,49 @@ At minimum, tests must prove:
 2. exact thin-inbound classification for one distinct qualifying source;
 3. an active graph source row with `source_state = 'ready'` contributes when every other rule passes;
 4. `source_state = 'removed'` never contributes;
-5. query capture proves no production audit SQL asks for `source_state = 'current'`;
-6. self-link retention, separate reporting, and exclusion from counts;
-7. duplicate target occurrence reporting without declaring every duplicate wrong;
-8. unresolved internal URL classification without guessed identity;
-9. supported old-slug and query-style URL resolution;
-10. current canonical, relative, and valid noncanonical URL treatment;
-11. deleted, trashed, private, password-protected, unsupported, excluded, and otherwise ineligible targets;
-12. an `intertexere_is_post_eligible` exclusion materialized by source refresh or rebuild removes one inbound source;
-13. materialized filter exclusions change two-plus qualifying sources to exactly one;
-14. materialized filter exclusions remove all qualifying sources and produce orphan status;
-15. a filter change after materialization does not masquerade as an instantaneous current-filter count and the disclosed result changes after rebuild;
-16. a 2,000-inbound-edge target proves the saturated set-based strategy, fixed PHP evidence bound, and absence of a request-time source eligibility loop;
-17. overview counts and category pages return the same classifications under filter exclusions;
-18. current displayed-source and target eligibility and permalink revalidation;
-19. stable active-generation reads while a replacement rebuild runs;
-20. index cutover and graph cutover races returning stale;
-21. a `ready` source-state row replaced by `removed` during calculation fails stale or suppresses obsolete evidence;
-22. post save during calculation;
-23. source deletion and target deletion during calculation;
-24. status, password, post-type, permalink, and eligibility races;
-25. bounded keyset pagination with no missing or duplicate findings;
-26. invalid category, cursor, generation, page size, post type, and search input;
-27. `manage_intertexere` success and failure;
-28. View/Edit capability filtering;
-29. database/service failure and two concurrent read requests;
-30. zero content, revision, autosave, editor, AI, index, graph, option, transient, metadata, taxonomy, and schema mutation;
-31. complete 0.1 through 0.5 regression coverage.
+5. a source absent from the graph replacement generation and a source absent from qualifying active-index rows never contribute;
+6. query capture proves no production audit SQL asks for `source_state = 'current'`;
+7. full rebuild can skip a runtime-filter-excluded candidate without fabricating a `removed` source row;
+8. self-link retention, separate reporting, and exclusion from counts;
+9. duplicate target occurrence reporting without declaring every duplicate wrong;
+10. unresolved internal URL classification without guessed identity;
+11. supported old-slug and query-style URL resolution;
+12. current canonical, relative, and valid noncanonical URL treatment;
+13. deleted, trashed, private, password-protected, unsupported, excluded, and otherwise ineligible targets;
+14. an `intertexere_is_post_eligible` exclusion materialized by source refresh or rebuild removes one inbound source from qualification;
+15. materialized filter exclusions change two-plus qualifying sources to exactly one;
+16. materialized filter exclusions remove all qualifying sources and produce orphan status;
+17. a filter change after materialization does not masquerade as an instantaneous current-filter count and the disclosed result changes after rebuild;
+18. a 2,000-inbound-edge target proves saturated set-based initial and final classification, fixed PHP evidence bounds, and absence of a request-time source eligibility loop;
+19. overview counts and category pages return the same classifications under filter exclusions;
+20. current displayed-source and target eligibility and permalink revalidation;
+21. stable active-generation reads while a replacement rebuild runs;
+22. index cutover and graph cutover races returning stale;
+23. orphan zero to one and zero to two-plus changes caused by same-generation incremental source saves are detected by final classification;
+24. thin one to two-plus through a new same-generation inbound edge is detected and is not returned as thin;
+25. thin one to zero when an existing `ready` source removes its edge is detected and is not returned as thin;
+26. two-plus to one and two-plus to zero through edge removal are reflected by final classification when the bounded target is revalidated;
+27. edge-removal races leave the source `ready`, proving `ready` to `removed` detection alone is insufficient;
+28. repeated-target `occurrence_count` changing from two to one removes or stales the repeated finding;
+29. an unresolved edge removed during the request is not displayed;
+30. an unresolved edge that becomes resolved during the request is not displayed under its old classification;
+31. a self-link removed during the request is not displayed;
+32. representative noncanonical URL evidence changing during the request is not displayed under its stale classification;
+33. a `ready` source-state row replaced by `removed` during calculation makes the page stale;
+34. a `ready` source replaced by another `ready` row with changed `source_content_hash` and edges makes stale evidence fail;
+35. an incremental same-generation mutation cannot produce a mixed-state exact overview because all counts come from one coherent aggregate statement;
+36. two simultaneous audit reads share no mutable audit state;
+37. source deletion and target deletion during calculation;
+38. status, password, post-type, permalink, and eligibility races;
+39. bounded keyset pagination with no missing or duplicate returned findings;
+40. a concurrently created finding may wait for refresh, while every returned row passes final derived-evidence revalidation;
+41. invalid category, cursor, generation, page size, post type, and search input;
+42. `manage_intertexere` success and failure;
+43. View/Edit capability filtering;
+44. database or service failure;
+45. race hooks execute at actual authority boundaries and do not create alternate production decision paths;
+46. zero content, revision, autosave, editor, AI, index, graph, option, transient, metadata, taxonomy, and schema mutation;
+47. complete 0.1 through 0.5 regression coverage.
 
 The matrix remains WordPress 7.1 on PHP 7.4, 8.1, and 8.3, plus PHP syntax validation.
 
@@ -178,13 +205,16 @@ Run on all three supported PHP versions:
 - [ ] At least 125 eligible posts and 500 edges include known orphan, thin, repeated, unresolved, unavailable, self, and noncanonical cases.
 - [ ] At least 1,000 eligible posts and 4,000 edges prove bounded pagination.
 - [ ] Overview uses no more than 12 queries and completes in less than 1.0 second.
+- [ ] Overview counts are returned by one coherent prepared aggregate read statement, followed by final generation comparison, so category values cannot represent different same-generation moments.
 - [ ] A 20-row page including current revalidation uses no more than 12 queries and completes in less than 750 ms.
 - [ ] A 50-row page uses no more than 14 queries, completes in less than 1.0 second, and adds less than 32 MiB peak memory.
-- [ ] Orphan/thin classification uses one set-based query per page and returns at most two evidence source IDs per target.
-- [ ] The 2,000-inbound-edge fixture stays inside the same page budgets and proves audit-time runtime-filter invocations do not scale with inbound degree.
+- [ ] Orphan/thin classification uses one set-based query for initial selection and one set-based final query for all displayed targets, returning at most two evidence source IDs per target from either operation.
+- [ ] Edge pages use one final set-based reread for all displayed stable edge keys, with no per-edge query.
+- [ ] The 2,000-inbound-edge fixture stays inside the same page budgets, exercises both initial and final saturated classification, and proves audit-time runtime-filter invocations do not scale with inbound degree.
+- [ ] The high-degree fixture performs a same-generation `ready` to `ready` incremental edge change between initial and final classification and proves the final class detects it without full inbound materialization.
 - [ ] Page two uses an indexed keyset plan and no unbounded offset.
 - [ ] Query logs prove no per-finding post, permalink, eligibility, or URL-resolution queries.
-- [ ] Results record queries, elapsed time, memory delta, result or examined rows where observable, and cursor behavior.
+- [ ] Results record queries, elapsed time, memory delta, result or examined rows where observable, cursor behavior, and the exact query cost of final derived-evidence revalidation.
 - [ ] Existing 0.3, 0.4, and 0.5 performance fixtures remain within their accepted budgets.
 
 ## Documentation and version gate

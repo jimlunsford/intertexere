@@ -31,7 +31,9 @@ An index or graph row never overrides current WordPress state. Audit output is d
 
 ### Eligibility authority and freshness boundary
 
-Schema 2 has exactly two graph source-state values: `ready` and `removed`. A `ready` row means the source passed `Eligibility::is_eligible()` when that source was written into the generation and its complete edge set was materialized. A `removed` row means it did not qualify or was deleted, and it contributes no edges. There is no `current` source-state value.
+Schema 2 has exactly two stored graph source-state values: `ready` and `removed`. A `ready` row means the source passed `Eligibility::is_eligible()` when that source was written into the generation and its complete edge set was materialized. A `removed` row is an explicit noncontributing marker written by the incremental refresh or removal lifecycle, and it contributes no edges. During a full graph rebuild, a configured source candidate that fails `Eligibility::is_eligible()` is skipped and may simply be absent from the replacement generation; the rebuild does not require a `removed` marker for every excluded source. An absent graph source row contributes nothing. There is no `current` source-state value.
+
+The active content index follows the same membership principle. A qualifying source has a live, non-tombstone row in the captured active index generation. A source excluded during a full index rebuild may be absent, and an incrementally ineligible source is removed from normal active rows. Index tombstones are replacement-generation concurrency markers, not an alternate durable eligibility state.
 
 `Eligibility::is_eligible()` first checks current configured post type, published status, empty password, and revision or autosave exclusion, then applies `intertexere_is_post_eligible`. That PHP filter may depend on arbitrary runtime state and cannot generally execute inside SQL. The audit therefore does not claim to re-run that filter over every inbound source on every request.
 
@@ -53,7 +55,7 @@ This freshness boundary is deliberate. Re-running an arbitrary PHP filter over h
 
 An eligible, published, public, non-password-protected post is a **content-body orphan** when it has zero distinct qualifying structural inbound sources under the active-generation eligibility rule above.
 
-Self-links do not count. A `removed` graph source never counts. Sources absent from the captured active index, or currently deleted, trashed, private, password-protected, unsupported, or otherwise invalid under the SQL-verifiable WordPress checks, do not count. Unresolved URLs do not count until the established resolver can assign a durable target post ID. Multiple occurrences from one source count as one inbound source.
+Self-links do not count. A `removed` graph source, an absent graph source row, and a source absent from the captured active index never count. Sources currently deleted, trashed, private, password-protected, unsupported, or otherwise invalid under the SQL-verifiable WordPress checks do not count. Unresolved URLs do not count until the established resolver can assign a durable target post ID. Multiple occurrences from one source count as one inbound source.
 
 This classification describes literal links in saved eligible post content only. Intertexere does not inspect navigation menus, templates, template parts, widgets, dynamic rendering, shortcode output, theme chrome, external sites, or browser-rendered pages. The interface must say “No inbound links found in eligible saved content,” not claim that the post has no links anywhere on the rendered site.
 
@@ -108,7 +110,15 @@ Immediately before returning a page, the service rereads both active generation 
 
 An in-progress rebuild does not by itself block auditing because readers may continue using the complete active generation. A cutover during the request fails stale. A later page carrying an older generation also fails stale.
 
-Incremental saves can update active-generation rows without changing the generation ID. Each page is therefore explicitly request-scoped, not a persistent whole-site snapshot. Findings are selected in bounded SQL statements using the captured generations and `ready` source rows. Displayed posts are bulk revalidated immediately before output. If a relevant source or target changes during calculation, that page fails stale or omits a no-longer-valid finding according to the same deterministic rule. A source-state replacement from `ready` to `removed` during classification must be detected by a final source-evidence check or produce a stale page. The UI must not describe multiple pages as one immutable completed audit run.
+Generation identity alone is not a complete request snapshot. Incremental saves can replace an active-generation source row and its full edge set without changing either active generation option. A source can remain `ready` while `source_content_hash`, edge existence, target identity, normalized URL, occurrence count, or self-link status changes. Each page is therefore explicitly request-scoped, not a persistent whole-site snapshot.
+
+Initial finding selection is provisional. Immediately before response construction, every page performs a final bounded, set-based reread of the exact derived evidence needed by the rows it is about to display. A mismatch makes the whole page stale; implementation must not return a mixture of initially selected and finally revalidated rows. This final derived-data check is separate from bounded current WordPress-object revalidation, and both checks precede the final active-generation option comparison. The response is current evidence, not a durable lock.
+
+For content-body orphan and thin-inbound pages, the final reread reruns the same saturated zero, one, or two-plus classifier for all bounded displayed target IDs in one prepared SQL statement. It uses the captured graph and index generations, `ready` source rows, qualifying active-index membership, current SQL-verifiable WordPress source fields, and distinct non-self resolved inbound sources. The service compares each final saturated class, and any evidence source IDs that will be displayed, with the class that selected the row. A difference in either direction, including zero to one, zero to two-plus, one to zero, one to two-plus, two-plus to one, or two-plus to zero, makes the page stale. The query retains no more than two evidence IDs per target and never loads the complete inbound list.
+
+For edge categories, one final prepared SQL statement rereads every bounded displayed edge by `(generation, source_post_id, target_identity_hash)` and joins the required source row in the same captured graph generation, qualifying active-index membership in the captured index generation, and current SQL-verifiable WordPress source fields. It compares all fields material to the category, including source post ID, target identity hash, target post ID, normalized URL, occurrence count, self-link flag, source state, and `source_content_hash` where available. A missing edge, replacement, changed classification, changed count or URL evidence, changed self-link status, or source that no longer joins as `ready` makes the page stale. No per-edge query is allowed.
+
+Request-scoped keyset pagination does not promise that a finding created concurrently outside the selected page appears in the response. It does promise that every finding actually returned still satisfies its category at the final derived-evidence boundary. A later refresh can reveal newly created findings. The UI must not describe multiple pages as one immutable completed audit run.
 
 ## Current WordPress revalidation
 
@@ -123,7 +133,7 @@ Before displaying an actionable finding, the service bulk-loads only the posts s
 - current canonical permalink where a destination or View action is shown;
 - any displayed source's row remains `ready` in the captured graph generation.
 
-Relevant displayed source and target authority snapshots are compared again immediately before response construction. Deletion, type change, status change, password change, permalink change where displayed, source-state replacement, or generation cutover makes the page stale or removes the finding. If a fresh runtime-filter result for a displayed structurally eligible post disagrees with its materialized index or graph membership, the page is stale and directs the administrator to rebuild; it does not silently apply a different eligibility definition than the overview. Bulk retrieval is mandatory; per-row `get_post()` or resolver calls must not create an N+1 path.
+Relevant displayed source and target authority snapshots are compared again immediately before response construction. Deletion, type change, status change, password change, permalink change where displayed, source-state replacement, derived edge replacement, or generation cutover makes the page stale. If a fresh runtime-filter result for a displayed structurally eligible post disagrees with its materialized index or graph membership, the page is stale and directs the administrator to rebuild; it does not silently apply a different eligibility definition than the overview. Bulk retrieval is mandatory; per-row `get_post()` or resolver calls must not create an N+1 path.
 
 The audit does not bulk-load or call `Eligibility::is_eligible()` for every source that contributes only to an orphan or thin-inbound count, or for every target included in an overview aggregate. Those posts are governed by materialized source state or active-index membership plus SQL-verifiable current WordPress fields. Full runtime-filter evaluation is limited to the bounded posts displayed on a page and acts as a stale-generation detector, not a second classification rule.
 
@@ -135,13 +145,13 @@ For each bounded target page, one set-based prepared SQL operation must classify
 
 No contributing source IDs are loaded into PHP for count classification beyond, at most, the two bounded evidence IDs per target needed by tests or an accessible reason. At page size 20 that is at most 40 IDs; at the hard page size 50 it is at most 100 IDs. There is no runtime-filter scan cursor and no bound-exhausted or inconclusive state because arbitrary current filter execution is not part of request-time count authority. The database result is exact for the captured materialized generations plus current SQL-verifiable WordPress state.
 
-A target with 500 historical inbound edges remains bounded. After a rebuild materializes runtime-filter exclusions, excluded sources have `removed` markers and no contributing edges. The set-based query seeks qualifying `ready` edges and saturates at two. If 499 are excluded and one remains, the result is thin. If all 500 are excluded, the result is orphan. If the filter changed after materialization and no rebuild or source refresh occurred, the audit continues to report the prior active-generation result with the required freshness disclosure until rebuild.
+A target with 500 historical inbound source IDs remains bounded. After a full rebuild materializes runtime-filter exclusions, excluded candidates have no qualifying `ready` source row or edge contribution in the captured graph generation and no qualifying active-index row in the captured index generation. They may be absent; a `removed` graph marker is only one valid explicit noncontributing state produced by incremental lifecycle behavior. The set-based query seeks qualifying `ready` edges and saturates at two. If 499 are excluded and one remains, the result is thin. If all 500 are excluded, the result is orphan. If the filter changed after materialization and no rebuild or source refresh occurred, the audit continues to report the prior active-generation result with the required freshness disclosure until rebuild.
 
 ## Execution and pagination
 
 0.6 uses on-demand, server-rendered WordPress admin requests. It does not create a background audit run, completion record, transient, table, cron task, cancellation token, or persistent snapshot.
 
-- The overview shows exact active-generation category counts using the same qualifying-source SQL semantics as category pages. They include current SQL-verifiable WordPress fields but do not claim a fresh execution of arbitrary runtime eligibility filters.
+- The overview shows exact active-generation category counts using the same qualifying-source SQL semantics as category pages. One prepared, set-based aggregate statement returns every overview category count from one database statement snapshot, so an incremental same-generation write cannot be observed by only some categories. It includes current SQL-verifiable WordPress fields but does not claim a fresh execution of arbitrary runtime eligibility filters.
 - A category page uses stable keyset pagination with a default page size of 20 and a hard maximum of 50.
 - Stable keys are post ID for post categories and `(source_post_id, target_identity_hash)` for edge categories.
 - Filtering is limited to a strict category, eligible post type, and bounded search term where a query plan remains indexed and testable.
@@ -150,7 +160,7 @@ A target with 500 historical inbound edges remains bounded. After a rebuild mate
 
 Because there is no durable audit run, start, progress, cancellation, and deactivation cleanup are unnecessary. “Refresh audit” means issue a new read against current active generations. It does not rebuild the index or graph.
 
-Overview counts must be labeled “Active-generation findings” and identify or link to the captured generation diagnostics. If generation evidence is unavailable, cut over, or cannot be evaluated within the accepted budgets, the interface shows unavailable or stale instead of an exact-looking number. Counts and category pages must call the same query service and cannot use different eligibility definitions.
+Overview counts must be labeled “Active-generation findings” and identify or link to the captured generation diagnostics. The overview aggregate must execute as one coherent read statement under the database engine's statement-level consistency or read-lock semantics; Intertexere adds no write lock or persistent snapshot. The service immediately compares both active generation options after that statement. A statement failure, unsupported coherence guarantee, or generation cutover returns stale or unavailable instead of counts. Same-generation writes committed before the statement may be included and writes not visible to that statement are excluded from every category consistently. Counts and category pages must call the same query service and cannot use different eligibility definitions.
 
 ## Persistence and schema
 
@@ -193,11 +203,14 @@ Implementation must prove the following on WordPress 7.1 for PHP 7.4, 8.1, and 8
 - one result page of 20, including current WordPress revalidation: no more than 12 database queries and less than 750 ms;
 - maximum page of 50: no more than 14 database queries, less than 1.0 second, and less than 32 MiB incremental peak memory;
 - no per-finding post, permalink, eligibility, or URL-resolution query pattern;
-- orphan/thin classification for one page uses one set-based database operation and returns at most two contributing evidence IDs per target;
+- initial orphan/thin classification for one page uses one set-based database operation, and final saturated revalidation adds exactly one set-based operation for all displayed target IDs;
+- initial edge selection is followed by exactly one set-based final reread for all displayed edge keys;
+- neither final reread returns more than two contributing evidence IDs per target, issues a per-target or per-edge query, or materializes a complete inbound-source list;
 - keyset page two scans only rows needed by the indexed cursor plan and does not use an unbounded offset;
-- all budgets include generation capture and final cutover checks.
+- overview category counts come from one coherent aggregate read statement, not a sequence of independently timed count queries;
+- all budgets include generation capture, final derived-evidence revalidation, current WordPress-object revalidation, and final cutover checks.
 
-Tests must record query count, elapsed time, peak memory delta, rows returned or examined where the database makes that observable, and cursor behavior. A dedicated high-degree fixture has at least 2,000 inbound edges to one target. It proves count saturation at two, bounded PHP evidence, and no request-time `Eligibility::is_eligible()` loop across contributing sources. Separate rebuild fixtures apply `intertexere_is_post_eligible` exclusions so 2,000 becomes two-plus, exactly one, and zero under materialized generation semantics. Performance failure must lead to a bounded query-plan correction, not a persistent audit cache or silent schema change.
+Tests must record query count, elapsed time, peak memory delta, rows returned or examined where the database makes that observable, and cursor behavior. A dedicated high-degree fixture has at least 2,000 inbound edges to one target. It proves count saturation at two in both initial and final classification, bounded PHP evidence, and no request-time `Eligibility::is_eligible()` loop across contributing sources. The same fixture includes a race hook after initial classification where an incremental save replaces a `ready` source with another `ready` row and changes its edges inside the active generations; the final saturated reread must catch the resulting class change. Separate rebuild fixtures apply `intertexere_is_post_eligible` exclusions so 2,000 becomes two-plus, exactly one, and zero under materialized generation semantics. Performance failure must lead to a bounded query-plan correction, not a persistent audit cache or silent schema change.
 
 ## Concurrency and failure behavior
 
@@ -205,15 +218,23 @@ The test suite must exercise:
 
 - audit while index or graph replacement rebuild is running, using only active generations;
 - index and graph cutover during an audit request, each failing stale;
-- a post save during calculation, with no stale finding returned as current;
+- orphan classification changing from zero to one or two-plus through a same-generation incremental source save;
+- thin classification changing from one to zero or two-plus through same-generation edge removal or addition;
+- two-plus classification changing to one or zero through same-generation edge removal;
+- `ready` to `ready` source replacement with a changed `source_content_hash` and edge set, proving source-state checks alone are insufficient;
 - source or target deletion, status, password, type, permalink, and eligibility changes during calculation;
 - a `ready` source row being atomically replaced by `removed` during calculation;
+- repeated-target occurrence count changing from two to one during calculation;
+- an unresolved edge disappearing or becoming resolved during calculation;
+- a self-link disappearing during calculation;
+- representative noncanonical URL evidence changing during calculation;
+- a same-generation incremental write between overview category calculations, proving the one-statement overview cannot expose mixed-state exact counts;
 - runtime-filter behavior changing after materialization, with the prior active-generation result retained and clearly disclosed until rebuild;
 - two concurrent reads without shared mutable audit state;
 - database or service failure with safe error output;
 - plugin deactivation, which requires no audit cleanup because no audit state exists.
 
-Every failure performs zero post, editor, index, graph, setting, transient, schema, redirect, AI, save, autosave, revision, or publication mutation.
+Race hooks must sit at the real boundary between initial selection and final derived-evidence revalidation and must provide test observability only, never an alternate production decision path. Every failure performs zero post, editor, index, graph, setting, transient, schema, redirect, AI, save, autosave, revision, or publication mutation.
 
 ## Relationship to editor suggestions and repairs
 
