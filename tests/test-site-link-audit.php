@@ -172,18 +172,25 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 
 	public function test_materialized_runtime_filter_changes_counts_only_after_refresh(): void {
 		$target = $this->post( 'Filter target' );
-		$source = $this->post( 'Filter source', '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>' );
-		$this->assertSame( 1, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
+		$link = '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>';
+		$source_a = $this->post( 'Filter source A', $link );
+		$source_b = $this->post( 'Filter source B', $link );
+		$this->assertSame( 2, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
 
-		$exclude = static function ( bool $eligible, WP_Post $post ) use ( $source ): bool {
-			return $post->ID === $source ? false : $eligible;
+		$excluded = array( $source_b );
+		$exclude = static function ( bool $eligible, WP_Post $post ) use ( &$excluded ): bool {
+			return in_array( $post->ID, $excluded, true ) ? false : $eligible;
 		};
 		add_filter( 'intertexere_is_post_eligible', $exclude, 10, 2 );
+		$this->assertSame( 2, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
+		Indexer::refresh_post( $source_b );
+		Link_Graph::refresh_post( $source_b );
 		$this->assertSame( 1, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
-		$this->assertSame( 'stale', $this->page( 'thin', $target )['status'] );
 
-		Indexer::refresh_post( $source );
-		Link_Graph::refresh_post( $source );
+		$excluded[] = $source_a;
+		$this->assertSame( 'stale', $this->page( 'thin', $target )['status'] );
+		Indexer::refresh_post( $source_a );
+		Link_Graph::refresh_post( $source_a );
 		$this->assertSame( 0, Site_Link_Audit::classify_targets( array( $target ), $this->generations() )[ $target ]['class'] );
 		remove_filter( 'intertexere_is_post_eligible', $exclude, 10 );
 	}
@@ -466,6 +473,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'orphans', $result['counts'] );
 		$this->assertLessThanOrEqual( 12, $result['metrics']['query_count'] );
 		$this->assertLessThan( 1000, $result['metrics']['elapsed_ms'] );
+		fwrite( STDOUT, sprintf( "\n0.6 overview: %d queries, %.3f ms, %d bytes peak delta\n", $result['metrics']['query_count'], $result['metrics']['elapsed_ms'], $result['metrics']['memory_delta'] ) );
 
 		add_action(
 			'intertexere_audit_after_overview_read',
@@ -551,6 +559,13 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		for ( $i = 0; $i < 55; ++$i ) {
 			$this->post( 'Performance orphan ' . $i );
 		}
+		$twenty = Site_Link_Audit::page( $this->request( 'orphans', 20 ) );
+		$this->assertSame( 'current', $twenty['status'] );
+		$this->assertCount( 20, $twenty['rows'] );
+		$this->assertLessThanOrEqual( 12, $twenty['metrics']['query_count'] );
+		$this->assertLessThan( 750, $twenty['metrics']['elapsed_ms'] );
+		fwrite( STDOUT, sprintf( "\n0.6 20-row page: %d queries, %.3f ms, %d bytes peak delta, %d rows\n", $twenty['metrics']['query_count'], $twenty['metrics']['elapsed_ms'], $twenty['metrics']['memory_delta'], $twenty['metrics']['result_count'] ) );
+
 		$result = Site_Link_Audit::page( $this->request( 'orphans', 50 ) );
 		$metrics = $result['metrics'];
 		fwrite( STDOUT, sprintf( "\n0.6 50-row page: %d queries, %.3f ms, %d bytes peak delta, %d rows\n", $metrics['query_count'], $metrics['elapsed_ms'], $metrics['memory_delta'], $metrics['result_count'] ) );
@@ -562,6 +577,83 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		foreach ( $result['rows'] as $row ) {
 			$this->assertLessThanOrEqual( 2, count( $row['evidence'] ) );
 		}
+	}
+
+	public function test_representative_125_post_500_edge_fixture_contains_every_initial_category(): void {
+		global $wpdb;
+
+		$targets = array();
+		for ( $i = 0; $i < 7; ++$i ) {
+			$targets[] = $this->post( 'Representative target ' . $i );
+		}
+		$orphan = $targets[0];
+		$thin = $targets[1];
+		$dense = array_slice( $targets, 2, 4 );
+		$unavailable = $targets[6];
+		$sources = $this->bulk_sources( 125, '<p>Representative saved source content.</p>' );
+		$generation = (string) get_option( Schema::GRAPH_GENERATION_OPTION );
+		$now = current_time( 'mysql', true );
+		$edge_rows = array();
+		foreach ( $sources as $position => $source_id ) {
+			$destinations = $dense;
+			if ( 0 === $position ) {
+				$destinations[2] = $source_id;
+				$destinations[3] = null;
+			} elseif ( 1 === $position ) {
+				$destinations[2] = $unavailable;
+				$destinations[3] = $thin;
+			}
+			foreach ( $destinations as $slot => $destination ) {
+				if ( null === $destination ) {
+					$identity = hash( 'sha256', 'url:/representative-unresolved/' );
+					$url = home_url( '/representative-unresolved/' );
+					$is_self = 0;
+				} else {
+					$identity = hash( 'sha256', 'post:' . $destination );
+					$url = ( 0 === $position && 1 === $slot )
+						? home_url( '/?p=' . $destination . '&representative=1' )
+						: (string) get_permalink( $destination );
+					$is_self = $destination === $source_id ? 1 : 0;
+				}
+				$edge_rows[] = array(
+					$generation,
+					$source_id,
+					$identity,
+					$destination,
+					$url,
+					( 0 === $position && 0 === $slot ) ? 2 : 1,
+					$is_self,
+					$now,
+				);
+			}
+		}
+		$this->bulk_insert(
+			Schema::link_edges_table_name(),
+			array( 'generation', 'source_post_id', 'target_identity_hash', 'target_post_id', 'normalized_url', 'occurrence_count', 'is_self', 'indexed_at_gmt' ),
+			array( '%s', '%d', '%s', '%d', '%s', '%d', '%d', '%s' ),
+			$edge_rows
+		);
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Schema::link_edges_table_name() . ' SET target_post_id = NULL WHERE generation = %s AND source_post_id = %d AND target_identity_hash = %s',
+				$generation,
+				$sources[0],
+				hash( 'sha256', 'url:/representative-unresolved/' )
+			)
+		);
+		wp_update_post( array( 'ID' => $unavailable, 'post_status' => 'trash' ) );
+
+		$this->assertCount( 125, $sources );
+		$this->assertCount( 500, $edge_rows );
+		$this->assertSame( 0, Site_Link_Audit::classify_targets( array( $orphan ), $this->generations() )[ $orphan ]['class'] );
+		$this->assertSame( 1, Site_Link_Audit::classify_targets( array( $thin ), $this->generations() )[ $thin ]['class'] );
+		$this->assertSame( 'current', $this->page( 'repeated', $sources[0] )['status'] );
+		$this->assertCount( 1, $this->page( 'repeated', $sources[0] )['rows'] );
+		$this->assertCount( 1, $this->page( 'self', $sources[0] )['rows'] );
+		$this->assertCount( 1, $this->page( 'unavailable', $sources[0] )['rows'] );
+		$this->assertCount( 1, $this->page( 'unavailable', $sources[1] )['rows'] );
+		$this->assertCount( 1, $this->page( 'noncanonical', $sources[0] )['rows'] );
+		fwrite( STDOUT, "\n0.6 representative fixture: 125 source posts, 500 edges, all six category families proven\n" );
 	}
 
 	public function test_two_thousand_inbound_edges_saturate_at_two_and_final_race_stays_bounded(): void {
