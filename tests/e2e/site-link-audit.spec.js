@@ -78,6 +78,7 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		).toBeVisible();
 
 		await page
+			.getByLabel( 'Audit categories' )
 			.getByRole( 'link', { name: 'Content-body orphans' } )
 			.click();
 		await page
@@ -225,9 +226,11 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		await page.getByLabel( 'Username or Email Address' ).fill( username );
 		await page.getByLabel( 'Password', { exact: true } ).fill( password );
 		await page.getByRole( 'button', { name: 'Log In' } ).click();
-		await page.goto( auditUrl );
+		await expect( page ).toHaveURL( /wp-admin/ );
+		const response = await page.goto( auditUrl );
+		expect( response.status() ).toBe( 403 );
 		await expect(
-			page.getByText( /not allowed to access this page/i )
+			page.getByText( /not allowed to access/i )
 		).toBeVisible();
 		await expect(
 			page.getByText( 'Intertexere Site Link Audit', { exact: true } )
