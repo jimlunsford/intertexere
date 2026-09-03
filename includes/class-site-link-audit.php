@@ -112,6 +112,9 @@ final class Site_Link_Audit {
 		if ( ! current_user_can( 'manage_intertexere' ) ) {
 			return self::finish( array( 'status' => 'forbidden', 'generations' => $generations, 'message' => 'You are not allowed to view the site link audit.' ), $started, $queries );
 		}
+		if ( ! self::session_isolation_is_statement_coherent() ) {
+			return self::finish( self::unavailable( $generations, 'The current database isolation mode cannot guarantee coherent audit reads.' ), $started, $queries );
+		}
 
 		if ( ! self::has_generations( $generations ) || ! self::tables_are_statement_coherent() ) {
 			return self::finish( self::unavailable( $generations, 'The active audit data cannot provide a coherent read.' ), $started, $queries );
@@ -162,6 +165,9 @@ final class Site_Link_Audit {
 		$generations = self::capture_generations();
 		if ( ! current_user_can( 'manage_intertexere' ) ) {
 			return self::finish( array( 'status' => 'forbidden', 'generations' => $generations, 'message' => 'You are not allowed to view the site link audit.' ), $started, $queries );
+		}
+		if ( ! self::session_isolation_is_statement_coherent() ) {
+			return self::finish( self::unavailable( $generations, 'The current database isolation mode cannot guarantee coherent audit reads.' ), $started, $queries );
 		}
 
 		if ( ! self::has_generations( $generations ) ) {
@@ -316,6 +322,39 @@ final class Site_Link_Audit {
 
 	private static function has_generations( array $generations ): bool {
 		return '' !== (string) $generations['index'] && '' !== (string) $generations['graph'];
+	}
+
+	private static function session_isolation_is_statement_coherent(): bool {
+		global $wpdb;
+
+		$wpdb->last_error = '';
+		$rows = $wpdb->get_results(
+			"SHOW SESSION VARIABLES WHERE Variable_name IN ('transaction_isolation', 'tx_isolation')",
+			ARRAY_A
+		);
+		if ( '' !== $wpdb->last_error || ! is_array( $rows ) || empty( $rows ) ) {
+			return false;
+		}
+
+		$values = array();
+		foreach ( $rows as $row ) {
+			$row = array_change_key_case( $row, CASE_LOWER );
+			$name = (string) ( $row['variable_name'] ?? '' );
+			if ( ! in_array( $name, array( 'transaction_isolation', 'tx_isolation' ), true ) ) {
+				continue;
+			}
+			$value = strtoupper( str_replace( array( '-', '_' ), ' ', trim( (string) ( $row['value'] ?? '' ) ) ) );
+			$value = (string) preg_replace( '/\s+/', ' ', $value );
+			if ( ! in_array( $value, array( 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE' ), true ) ) {
+				return false;
+			}
+			if ( isset( $values[ $name ] ) && $value !== $values[ $name ] ) {
+				return false;
+			}
+			$values[ $name ] = $value;
+		}
+
+		return ! empty( $values ) && 1 === count( array_unique( $values ) );
 	}
 
 	private static function tables_are_statement_coherent(): bool {

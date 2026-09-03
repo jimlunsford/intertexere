@@ -14,9 +14,11 @@ use Intertexere\Site_Link_Audit;
 class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 	private int $administrator_id;
 	private string $original_permalink_structure;
+	private ?string $original_session_isolation = null;
 
 	public function set_up(): void {
 		parent::set_up();
+		$this->original_session_isolation = $this->current_session_isolation();
 		$this->original_permalink_structure = (string) get_option( 'permalink_structure' );
 		update_option( Settings::OPTION, Settings::defaults(), false );
 		delete_option( Indexer::LOCK_OPTION );
@@ -34,6 +36,9 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		if ( null !== $this->original_session_isolation ) {
+			$this->set_session_isolation( $this->original_session_isolation );
+		}
 		$this->set_permalink_structure( $this->original_permalink_structure );
 		remove_all_actions( 'intertexere_audit_after_overview_read' );
 		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
@@ -726,6 +731,142 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertSame( 'stale', Site_Link_Audit::overview()['status'] );
 	}
 
+	public function test_supported_session_isolation_allows_audit_reads_without_changing_the_caller_mode(): void {
+		$target = $this->post( 'Supported isolation target' );
+		$original = $this->current_session_isolation();
+		$this->assertContains( $original, array( 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE' ) );
+
+		try {
+			$this->assertSame( 'current', Site_Link_Audit::overview()['status'] );
+			$this->assertSame( $original, $this->current_session_isolation() );
+			$this->assertSame( 'current', $this->page( 'orphans', $target )['status'] );
+			$this->assertSame( $original, $this->current_session_isolation() );
+
+			foreach ( array( 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE' ) as $isolation ) {
+				$this->assertTrue( $this->set_session_isolation( $isolation ), 'The test database must support ' . $isolation . '.' );
+				$this->assertSame( $isolation, $this->current_session_isolation() );
+				$this->assertSame( 'current', Site_Link_Audit::overview()['status'] );
+				$this->assertSame( $isolation, $this->current_session_isolation(), 'The overview must not change the caller isolation level.' );
+				$this->assertSame( 'current', $this->page( 'orphans', $target )['status'] );
+				$this->assertSame( $isolation, $this->current_session_isolation(), 'A category page must not change the caller isolation level.' );
+			}
+		} finally {
+			$this->set_session_isolation( $original );
+		}
+
+		$this->assertSame( $original, $this->current_session_isolation() );
+		$this->assertSame( 'current', Site_Link_Audit::overview()['status'] );
+		$this->assertSame( 'current', $this->page( 'orphans', $target )['status'] );
+	}
+
+	public function test_tx_isolation_alias_is_accepted_without_changing_the_real_session(): void {
+		$target = $this->post( 'Legacy isolation alias target' );
+		$original = $this->current_session_isolation();
+		$metadata_query = static function ( string $query ): string {
+			if ( false !== strpos( $query, 'SHOW SESSION VARIABLES' ) && false !== strpos( $query, 'transaction_isolation' ) ) {
+				return "SELECT 'tx_isolation' AS Variable_name, 'REPEATABLE-READ' AS Value";
+			}
+			return $query;
+		};
+		add_filter( 'query', $metadata_query );
+		try {
+			$overview = Site_Link_Audit::overview();
+			$page = $this->page( 'orphans', $target );
+		} finally {
+			remove_filter( 'query', $metadata_query );
+		}
+		$this->assertSame( 'current', $overview['status'] );
+		$this->assertSame( 'current', $page['status'] );
+		$this->assertSame( $original, $this->current_session_isolation() );
+	}
+
+	public function test_read_uncommitted_fails_unavailable_without_counts_or_rows_and_restores_cleanly(): void {
+		$target = $this->post( 'Dirty read isolation target' );
+		$original = $this->current_session_isolation();
+
+		try {
+			$this->assertTrue( $this->set_session_isolation( 'READ UNCOMMITTED' ) );
+			$this->assertSame( 'READ UNCOMMITTED', $this->current_session_isolation() );
+
+			$overview = Site_Link_Audit::overview();
+			$this->assertSame( 'unavailable', $overview['status'] );
+			$this->assertStringContainsString( 'isolation mode', $overview['message'] );
+			$this->assertArrayNotHasKey( 'counts', $overview );
+			$this->assertSame( 'READ UNCOMMITTED', $this->current_session_isolation(), 'The overview must leave dirty-read isolation unchanged.' );
+
+			$page = $this->page( 'orphans', $target );
+			$this->assertSame( 'unavailable', $page['status'] );
+			$this->assertStringContainsString( 'isolation mode', $page['message'] );
+			$this->assertArrayNotHasKey( 'rows', $page );
+			$this->assertSame( 'READ UNCOMMITTED', $this->current_session_isolation(), 'A category page must leave dirty-read isolation unchanged.' );
+		} finally {
+			$this->set_session_isolation( $original );
+		}
+
+		$this->assertSame( $original, $this->current_session_isolation() );
+		$this->assertSame( 'current', Site_Link_Audit::overview()['status'] );
+		$this->assertSame( 'current', $this->page( 'orphans', $target )['status'] );
+	}
+
+	public function test_unsupported_or_undetectable_session_isolation_fails_unavailable(): void {
+		$this->post( 'Unknown isolation target' );
+		$metadata_query = static function ( string $query ): string {
+			if ( false !== strpos( $query, 'SHOW SESSION VARIABLES' ) && false !== strpos( $query, 'transaction_isolation' ) ) {
+				return "SELECT 'transaction_isolation' AS Variable_name, 'SNAPSHOT' AS Value";
+			}
+			return $query;
+		};
+		add_filter( 'query', $metadata_query );
+		try {
+			$overview = Site_Link_Audit::overview();
+			$page = $this->page( 'orphans' );
+		} finally {
+			remove_filter( 'query', $metadata_query );
+		}
+		$this->assertSame( 'unavailable', $overview['status'] );
+		$this->assertArrayNotHasKey( 'counts', $overview );
+		$this->assertSame( 'unavailable', $page['status'] );
+		$this->assertArrayNotHasKey( 'rows', $page );
+
+		$undetectable_query = static function ( string $query ): string {
+			return false !== strpos( $query, 'SHOW SESSION VARIABLES' ) ? "SELECT 'transaction_isolation' AS Variable_name, 'REPEATABLE-READ' AS Value WHERE 1 = 0" : $query;
+		};
+		add_filter( 'query', $undetectable_query );
+		try {
+			$undetectable = Site_Link_Audit::overview();
+		} finally {
+			remove_filter( 'query', $undetectable_query );
+		}
+		$this->assertSame( 'unavailable', $undetectable['status'] );
+		$this->assertArrayNotHasKey( 'counts', $undetectable );
+	}
+
+	public function test_innodb_engine_guard_still_applies_with_supported_isolation(): void {
+		global $wpdb;
+
+		$this->post( 'Engine guard target' );
+		$this->assertContains( $this->current_session_isolation(), array( 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE' ) );
+		$tables = array( $wpdb->posts, Schema::table_name(), Schema::graph_sources_table_name(), Schema::link_edges_table_name() );
+		$engine_query = static function ( string $query ) use ( $tables, $wpdb ): string {
+			if ( false === strpos( $query, 'information_schema.TABLES' ) ) {
+				return $query;
+			}
+			$selects = array();
+			foreach ( $tables as $index => $table ) {
+				$selects[] = $wpdb->prepare( 'SELECT %s AS TABLE_NAME, %s AS ENGINE', $table, 0 === $index ? 'MyISAM' : 'InnoDB' );
+			}
+			return implode( ' UNION ALL ', $selects );
+		};
+		add_filter( 'query', $engine_query );
+		try {
+			$result = Site_Link_Audit::overview();
+		} finally {
+			remove_filter( 'query', $engine_query );
+		}
+		$this->assertSame( 'unavailable', $result['status'] );
+		$this->assertArrayNotHasKey( 'counts', $result );
+	}
+
 	public function test_keyset_cursor_is_signed_bound_and_has_no_duplicate_rows(): void {
 		for ( $i = 0; $i < 7; ++$i ) {
 			$this->post( 'Cursor target ' . $i );
@@ -871,6 +1012,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 			'generations' => $this->generations(),
 			'settings' => get_option( Settings::OPTION ),
 			'schema' => get_option( Schema::VERSION_OPTION ),
+			'isolation' => $this->current_session_isolation(),
 		);
 		$this->page( 'thin', $target );
 		Site_Link_Audit::overview();
@@ -888,6 +1030,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 			'generations' => $this->generations(),
 			'settings' => get_option( Settings::OPTION ),
 			'schema' => get_option( Schema::VERSION_OPTION ),
+			'isolation' => $this->current_session_isolation(),
 		);
 		$this->assertSame( $before, $after );
 	}
@@ -1337,6 +1480,37 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 			'index' => (string) get_option( Schema::GENERATION_OPTION ),
 			'graph' => (string) get_option( Schema::GRAPH_GENERATION_OPTION ),
 		);
+	}
+
+	private function current_session_isolation(): string {
+		global $wpdb;
+
+		$rows = $wpdb->get_results(
+			"SHOW SESSION VARIABLES WHERE Variable_name IN ('transaction_isolation', 'tx_isolation')",
+			ARRAY_A
+		);
+		$this->assertIsArray( $rows );
+		$this->assertNotEmpty( $rows );
+		$values = array();
+		foreach ( $rows as $row ) {
+			$row = array_change_key_case( $row, CASE_LOWER );
+			$value = strtoupper( str_replace( array( '-', '_' ), ' ', trim( (string) ( $row['value'] ?? '' ) ) ) );
+			$values[] = (string) preg_replace( '/\s+/', ' ', $value );
+		}
+		$values = array_values( array_unique( $values ) );
+		$this->assertCount( 1, $values );
+		return $values[0];
+	}
+
+	private function set_session_isolation( string $isolation ): bool {
+		global $wpdb;
+
+		if ( ! in_array( $isolation, array( 'READ COMMITTED', 'REPEATABLE READ', 'READ UNCOMMITTED', 'SERIALIZABLE' ), true ) ) {
+			return false;
+		}
+		$wpdb->last_error = '';
+		$result = $wpdb->query( 'SET SESSION TRANSACTION ISOLATION LEVEL ' . $isolation );
+		return false !== $result && '' === $wpdb->last_error;
 	}
 
 	/** @return array<string,mixed> */

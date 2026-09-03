@@ -85,6 +85,8 @@ The implementation must contain no automatic repair, link insertion, replacement
 - [ ] Every edge page performs one final set-based reread of displayed stable edge keys, required `ready` source-state evidence, captured active-index membership, and current SQL-verifiable WordPress source fields, then compares every graph field material to the finding, including source content hash where available.
 - [ ] A missing, replaced, or reclassified edge, changed occurrence count, URL evidence, self-link flag, or non-`ready` source makes the page stale without a per-edge query.
 - [ ] Overview values are exact active-generation counts using the same service and eligibility semantics as category pages, and all category counts come from one coherent prepared aggregate statement.
+- [ ] Overview and category-page authority require both InnoDB participating tables and a current session isolation value of `READ COMMITTED`, `REPEATABLE READ`, or `SERIALIZABLE` discovered through the server-supported `transaction_isolation` or `tx_isolation` session variable.
+- [ ] `READ UNCOMMITTED`, unknown isolation values, and an undetectable isolation state return unavailable without exact counts or rows; the audit never changes isolation, starts a transaction, or acquires a lock.
 - [ ] A same-generation write cannot appear in only some overview categories; the single read statement either includes or excludes it consistently before the final generation check.
 - [ ] Overview labels counts as active-generation findings and shows unavailable or stale instead of a number when generation authority or performance bounds cannot be proved.
 
@@ -192,7 +194,14 @@ At minimum, tests must prove:
 50. distinct category, category-ancestor, and author dependencies remain bulk-primed under a tokenized post permalink structure;
 51. a parent-slug race changes the child permalink and fails the whole page stale;
 52. resolved edge rows expose source and target identity, current target permalink, and independently capability-filtered actions without inventing unresolved or missing-target actions;
-53. complete 0.1 through 0.5 regression coverage.
+53. complete 0.1 through 0.5 regression coverage;
+54. default supported isolation allows overview and category-page authority;
+55. `READ COMMITTED`, `REPEATABLE READ`, and the compatibility `tx_isolation` alias allow audit reads;
+56. `READ UNCOMMITTED` makes overview unavailable without counts and category pages unavailable without rows;
+57. restoring the caller's supported isolation restores normal audit behavior;
+58. audit requests never change the caller's isolation level;
+59. unsupported and undetectable isolation values fail unavailable;
+60. the independent InnoDB participating-table guard remains enforced.
 
 The matrix remains WordPress 7.1 on PHP 7.4, 8.1, and 8.3, plus PHP syntax validation.
 
