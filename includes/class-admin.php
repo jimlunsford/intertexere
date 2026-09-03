@@ -358,7 +358,7 @@ final class Admin {
 			return;
 		}
 
-		echo '<table class="wp-list-table widefat fixed striped"><thead><tr><th scope="col">' . esc_html__( 'Finding', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Source or target', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Evidence', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Actions', 'intertexere' ) . '</th></tr></thead><tbody>';
+		echo '<table class="wp-list-table widefat fixed striped"><thead><tr><th scope="col">' . esc_html__( 'Finding', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Source and target', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Evidence', 'intertexere' ) . '</th><th scope="col">' . esc_html__( 'Actions', 'intertexere' ) . '</th></tr></thead><tbody>';
 		foreach ( $result['rows'] as $row ) {
 			self::render_audit_row( $row, (string) $request['category'] );
 		}
@@ -388,30 +388,48 @@ final class Admin {
 			$reason = 'orphans' === $category
 				? __( 'Zero qualifying inbound sources were found in saved eligible content.', 'intertexere' )
 				: __( 'Exactly one qualifying inbound source was found in saved eligible content.', 'intertexere' );
-			$evidence = 'orphans' === $category ? __( 'Saturated inbound class: 0', 'intertexere' ) : __( 'Saturated inbound class: 1', 'intertexere' );
-			$actions = self::audit_post_actions( (int) $row['post_id'], $title, ! empty( $row['can_view'] ), ! empty( $row['can_edit'] ) );
+			$evidence = esc_html( 'orphans' === $category ? __( 'Saturated inbound class: 0', 'intertexere' ) : __( 'Saturated inbound class: 1', 'intertexere' ) );
+			$identity = esc_html( $title );
+			$actions = self::audit_post_actions( (int) $row['post_id'], $title, (string) $row['current_permalink'], ! empty( $row['can_view'] ), ! empty( $row['can_edit'] ) );
 		} else {
 			$title = (string) $row['source_title'];
 			$reason = (string) $row['finding_reason'];
-			$evidence = (string) $row['normalized_url'];
+			$evidence = esc_html__( 'Observed URL:', 'intertexere' ) . ' <code>' . esc_html( (string) $row['normalized_url'] ) . '</code>';
 			if ( 'repeated' === $category ) {
-				$evidence .= ' · ' . sprintf( _n( '%d occurrence', '%d occurrences', (int) $row['occurrence_count'], 'intertexere' ), (int) $row['occurrence_count'] );
+				$evidence .= '<br>' . esc_html( sprintf( _n( '%d occurrence', '%d occurrences', (int) $row['occurrence_count'], 'intertexere' ), (int) $row['occurrence_count'] ) );
 			}
-			$actions = self::audit_post_actions( (int) $row['source_post_id'], $title, ! empty( $row['source_can_view'] ), ! empty( $row['source_can_edit'] ) );
+			$identity = '<strong>' . esc_html__( 'Source:', 'intertexere' ) . '</strong> ' . esc_html( $title );
+			$source_actions = self::audit_post_actions( (int) $row['source_post_id'], $title, (string) $row['source_permalink'], ! empty( $row['source_can_view'] ), ! empty( $row['source_can_edit'] ), __( 'source', 'intertexere' ) );
+			$target_id = (int) ( $row['target_post_id'] ?? 0 );
+			if ( 0 === $target_id ) {
+				$identity .= '<br><strong>' . esc_html__( 'Target:', 'intertexere' ) . '</strong> ' . esc_html__( 'Unknown (unresolved)', 'intertexere' );
+				$target_actions = esc_html__( 'No target actions', 'intertexere' );
+			} elseif ( ! empty( $row['target_current']['exists'] ) ) {
+				$target = $row['target_current'];
+				$target_title = '' !== (string) $target['title'] ? (string) $target['title'] : sprintf( __( 'Post %d', 'intertexere' ), $target_id );
+				$identity .= '<br><strong>' . esc_html__( 'Target:', 'intertexere' ) . '</strong> ' . esc_html( $target_title ) . ' <span class="description">(' . esc_html( sprintf( __( 'ID %d', 'intertexere' ), $target_id ) ) . ')</span>';
+				$identity .= '<br><span class="description">' . esc_html__( 'Current target:', 'intertexere' ) . ' <a href="' . esc_url( (string) $target['permalink'] ) . '">' . esc_html( (string) $target['permalink'] ) . '</a></span>';
+				$target_actions = self::audit_post_actions( $target_id, $target_title, (string) $target['permalink'], ! empty( $target['can_view'] ), ! empty( $target['can_edit'] ), __( 'target', 'intertexere' ) );
+			} else {
+				$identity .= '<br><strong>' . esc_html__( 'Target:', 'intertexere' ) . '</strong> ' . esc_html( sprintf( __( 'Known post ID %d, currently unavailable', 'intertexere' ), $target_id ) );
+				$target_actions = esc_html__( 'No target actions', 'intertexere' );
+			}
+			$actions = '<strong>' . esc_html__( 'Source:', 'intertexere' ) . '</strong> ' . $source_actions . '<br><strong>' . esc_html__( 'Target:', 'intertexere' ) . '</strong> ' . $target_actions;
 		}
 
-		echo '<tr><td>' . esc_html( $reason ) . '</td><th scope="row">' . esc_html( $title ) . '</th><td><code>' . esc_html( $evidence ) . '</code></td><td>' . $actions . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo '<tr><td>' . esc_html( $reason ) . '</td><th scope="row">' . $identity . '</th><td>' . $evidence . '</td><td>' . $actions . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
-	private static function audit_post_actions( int $post_id, string $title, bool $can_view, bool $can_edit ): string {
+	private static function audit_post_actions( int $post_id, string $title, string $permalink, bool $can_view, bool $can_edit, string $context = '' ): string {
 		$actions = array();
+		$label_title = '' === $context ? $title : $context . ' ' . $title;
 		if ( $can_view ) {
-			$actions[] = '<a href="' . esc_url( get_permalink( $post_id ) ) . '">' . esc_html( sprintf( __( 'View %s', 'intertexere' ), $title ) ) . '</a>';
+			$actions[] = '<a href="' . esc_url( $permalink ) . '">' . esc_html( sprintf( __( 'View %s', 'intertexere' ), $label_title ) ) . '</a>';
 		}
 		if ( $can_edit ) {
 			$edit = get_edit_post_link( $post_id, 'raw' );
 			if ( is_string( $edit ) && '' !== $edit ) {
-				$actions[] = '<a href="' . esc_url( $edit ) . '">' . esc_html( sprintf( __( 'Edit %s', 'intertexere' ), $title ) ) . '</a>';
+				$actions[] = '<a href="' . esc_url( $edit ) . '">' . esc_html( sprintf( __( 'Edit %s', 'intertexere' ), $label_title ) ) . '</a>';
 			}
 		}
 		return empty( $actions ) ? esc_html__( 'No permitted actions', 'intertexere' ) : implode( ' | ', $actions );

@@ -11,6 +11,7 @@ final class Site_Link_Audit {
 	public const CONTRACT_VERSION = 1;
 	public const DEFAULT_PAGE_SIZE = 20;
 	public const MAX_PAGE_SIZE = 50;
+	private const MAX_PERMALINK_ANCESTOR_DEPTH = 32;
 
 	/** @var string[] */
 	private const CATEGORIES = array(
@@ -25,6 +26,7 @@ final class Site_Link_Audit {
 	/** @var array<string, mixed> */
 	private static array $last_metrics = array();
 	private static int $memory_peak_start = 0;
+	private static int $memory_usage_start = 0;
 
 	/**
 	 * Validate a native wp-admin query without accepting unknown audit fields.
@@ -105,6 +107,7 @@ final class Site_Link_Audit {
 		$started = microtime( true );
 		$queries = get_num_queries();
 		self::$memory_peak_start = memory_get_peak_usage( true );
+		self::$memory_usage_start = memory_get_usage( false );
 		$generations = self::capture_generations();
 		if ( ! current_user_can( 'manage_intertexere' ) ) {
 			return self::finish( array( 'status' => 'forbidden', 'generations' => $generations, 'message' => 'You are not allowed to view the site link audit.' ), $started, $queries );
@@ -155,6 +158,7 @@ final class Site_Link_Audit {
 		$started = microtime( true );
 		$queries = get_num_queries();
 		self::$memory_peak_start = memory_get_peak_usage( true );
+		self::$memory_usage_start = memory_get_usage( false );
 		$generations = self::capture_generations();
 		if ( ! current_user_can( 'manage_intertexere' ) ) {
 			return self::finish( array( 'status' => 'forbidden', 'generations' => $generations, 'message' => 'You are not allowed to view the site link audit.' ), $started, $queries );
@@ -181,6 +185,9 @@ final class Site_Link_Audit {
 		$rows = array_slice( $selection, 0, (int) $request['page_size'] );
 		$object_ids = self::object_ids( $rows, $is_post_category );
 		$objects_before = self::snapshot_objects( $object_ids );
+		if ( false === $objects_before ) {
+			return self::finish( self::unavailable( $generations, 'Current permalink authority could not be calculated within the bounded audit contract.' ), $started, $queries );
+		}
 
 		if ( ! self::rows_match_current_objects( $rows, $objects_before, $is_post_category ) ) {
 			return self::finish( self::stale( $generations, true ), $started, $queries );
@@ -199,7 +206,7 @@ final class Site_Link_Audit {
 				return self::finish( self::stale( $generations, true ), $started, $queries );
 			}
 		} else {
-			$final = self::reread_edges( $rows, $generations );
+			$final = self::reread_edges( $rows, $generations, $category );
 			if ( ! is_array( $final ) || ! self::edge_evidence_matches( $rows, $final ) ) {
 				return self::finish( self::stale( $generations, true ), $started, $queries );
 			}
@@ -209,6 +216,9 @@ final class Site_Link_Audit {
 		do_action( 'intertexere_audit_before_final_object_authority', $category, $rows, $generations );
 
 		$objects_after = self::snapshot_objects( $object_ids );
+		if ( false === $objects_after ) {
+			return self::finish( self::unavailable( $generations, 'Current permalink authority could not be calculated within the bounded audit contract.' ), $started, $queries );
+		}
 		if ( $objects_before !== $objects_after || ! self::rows_match_current_objects( $rows, $objects_after, $is_post_category ) ) {
 			return self::finish( self::stale( $generations, true ), $started, $queries );
 		}
@@ -368,7 +378,7 @@ final class Site_Link_Audit {
 			. ' (SELECT COUNT(*)' . $edge_base . $target_invalid . ') AS unavailable,'
 			. ' (SELECT COUNT(*)' . $edge_base . 'e.target_post_id IS NOT NULL AND e.occurrence_count > 1) AS repeated,'
 			. ' (SELECT COUNT(*)' . $edge_base . 'e.target_post_id IS NOT NULL AND e.is_self = 1) AS self,'
-			. ' (SELECT COUNT(*)' . $edge_base . "e.target_post_id IS NOT NULL AND ti.post_id IS NOT NULL AND e.normalized_url <> ti.permalink) AS noncanonical"
+			. ' (SELECT COUNT(*)' . $edge_base . self::noncanonical_condition( $type_marks, $status_marks ) . ') AS noncanonical'
 			. ' FROM (' . $structural . ') a';
 		$args = array_merge(
 			$edge_args,
@@ -376,7 +386,7 @@ final class Site_Link_Audit {
 			$statuses,
 			$edge_args,
 			$edge_args,
-			$edge_args,
+			array_merge( $edge_args, $types, $statuses ),
 			$structural_args
 		);
 		$row = self::get_row( $sql, $args );
@@ -482,6 +492,8 @@ final class Site_Link_Audit {
 		$sql .= ' AND ' . self::edge_category_condition( (string) $request['category'], $sql_data['type_marks'], $sql_data['status_marks'] );
 		if ( 'unavailable' === $request['category'] ) {
 			$args = array_merge( $args, $sql_data['types'], $sql_data['statuses'] );
+		} elseif ( 'noncanonical' === $request['category'] ) {
+			$args = array_merge( $args, $sql_data['types'], $sql_data['statuses'] );
 		}
 		self::append_filters( $sql, $args, $request, 'sp', 'e.source_post_id' );
 		if ( ! empty( $request['cursor'] ) ) {
@@ -540,7 +552,33 @@ final class Site_Link_Audit {
 		if ( 'self' === $category ) {
 			return 'e.target_post_id IS NOT NULL AND e.is_self = 1';
 		}
-		return "e.target_post_id IS NOT NULL AND ti.post_id IS NOT NULL AND e.normalized_url <> ti.permalink";
+		return self::noncanonical_condition( $type_marks, $status_marks );
+	}
+
+	/**
+	 * Prove current representative-URL identity without resolving one URL per row.
+	 *
+	 * Schema 2 can prove Core's explicit query-ID forms set-wise. Retained old
+	 * slugs and other path aliases are intentionally omitted because historical
+	 * edge identity does not prove that the representative path is still owned
+	 * by the same current post.
+	 */
+	private static function noncanonical_condition( string $type_marks, string $status_marks ): string {
+		$query = "CONCAT('&', SUBSTRING_INDEX(e.normalized_url, '?', -1), '&')";
+		$p_count = "((CHAR_LENGTH({$query}) - CHAR_LENGTH(REPLACE({$query}, '&p=', ''))) / 3)";
+		$page_count = "((CHAR_LENGTH({$query}) - CHAR_LENGTH(REPLACE({$query}, '&page_id=', ''))) / 9)";
+		$attachment_count = "((CHAR_LENGTH({$query}) - CHAR_LENGTH(REPLACE({$query}, '&attachment_id=', ''))) / 15)";
+		$one_identity = "({$p_count} + {$page_count} + {$attachment_count}) = 1";
+		$matches = array();
+		foreach ( array( 'p', 'page_id', 'attachment_id' ) as $key ) {
+			$value = "SUBSTRING_INDEX(SUBSTRING_INDEX({$query}, '&{$key}=', -1), '&', 1)";
+			$matches[] = "({$query} REGEXP '&{$key}=[0-9]+&' AND CAST({$value} AS UNSIGNED) = e.target_post_id)";
+		}
+
+		return 'e.target_post_id IS NOT NULL AND ti.post_id IS NOT NULL'
+			. " AND tp.ID = e.target_post_id AND tp.post_type IN ({$type_marks}) AND tp.post_status IN ({$status_marks}) AND tp.post_password = ''"
+			. ' AND e.normalized_url <> ti.permalink AND e.normalized_url LIKE \'%?%\''
+			. ' AND ' . $one_identity . ' AND (' . implode( ' OR ', $matches ) . ')';
 	}
 
 	/** @return array<string,mixed> */
@@ -554,7 +592,7 @@ final class Site_Link_Audit {
 	}
 
 	/** @return array<int,array<string,mixed>>|false */
-	private static function reread_edges( array $rows, array $generations ) {
+	private static function reread_edges( array $rows, array $generations, string $category = '' ) {
 		if ( empty( $rows ) ) {
 			return array();
 		}
@@ -567,6 +605,12 @@ final class Site_Link_Audit {
 			$args[] = (string) $row['target_identity_hash'];
 		}
 		$sql = $sql_data['select'] . $sql_data['from'] . ' WHERE ' . $sql_data['where'] . ' AND (' . implode( ' OR ', $clauses ) . ')';
+		if ( '' !== $category ) {
+			$sql .= ' AND ' . self::edge_category_condition( $category, $sql_data['type_marks'], $sql_data['status_marks'] );
+			if ( 'unavailable' === $category || 'noncanonical' === $category ) {
+				$args = array_merge( $args, $sql_data['types'], $sql_data['statuses'] );
+			}
+		}
 		$final = self::get_results( $sql, $args );
 		return false === $final ? false : array_map( array( self::class, 'normalize_edge' ), $final );
 	}
@@ -638,8 +682,8 @@ final class Site_Link_Audit {
 		return array_values( array_unique( array_filter( $ids ) ) );
 	}
 
-	/** @return array<int,array<string,mixed>> */
-	private static function snapshot_objects( array $ids ): array {
+	/** @return array<int,array<string,mixed>>|false */
+	private static function snapshot_objects( array $ids ) {
 		global $wpdb;
 
 		if ( empty( $ids ) ) {
@@ -659,6 +703,10 @@ final class Site_Link_Audit {
 			$posts_to_cache = array_values( $posts );
 			update_post_cache( $posts_to_cache );
 		}
+		$permalink_context = self::prime_permalink_dependencies( $posts );
+		if ( false === $permalink_context ) {
+			return false;
+		}
 
 		$snapshots = array();
 		foreach ( $ids as $id ) {
@@ -667,6 +715,13 @@ final class Site_Link_Audit {
 				continue;
 			}
 			$post = $posts[ $id ];
+			$permalink_query_start = get_num_queries();
+			$permalink = (string) get_permalink( $post );
+			$graph_source_hash = Link_Graph::current_source_hash( $post );
+			$permalink_dependencies = self::permalink_dependency_signature( $post, $permalink_context );
+			if ( get_num_queries() !== $permalink_query_start ) {
+				return false;
+			}
 			$snapshots[ $id ] = array(
 				'exists'    => true,
 				'id'        => (int) $post->ID,
@@ -674,15 +729,152 @@ final class Site_Link_Audit {
 				'status'    => (string) $post->post_status,
 				'password'  => (string) $post->post_password,
 				'title'     => (string) get_the_title( $post ),
-				'permalink' => (string) get_permalink( $post ),
+				'permalink' => $permalink,
+				'permalink_dependencies' => $permalink_dependencies,
 				'eligible'  => Eligibility::is_eligible( $post ),
-				'graph_source_hash' => Link_Graph::current_source_hash( $post ),
+				'graph_source_hash' => $graph_source_hash,
 				'can_view'  => current_user_can( 'read_post', $id ),
 				'can_edit'  => current_user_can( 'edit_post', $id ),
 			);
 		}
 		ksort( $snapshots );
 		return $snapshots;
+	}
+
+	/**
+	 * Prime Core permalink dependencies in bounded batches before per-object use.
+	 *
+	 * @param array<int,\WP_Post> $posts Posts keyed by ID.
+	 * @return array<string,mixed>|false
+	 */
+	private static function prime_permalink_dependencies( array $posts ) {
+		global $wpdb, $wp_rewrite;
+
+		$structure = isset( $wp_rewrite->permalink_structure ) ? (string) $wp_rewrite->permalink_structure : (string) get_option( 'permalink_structure' );
+		$hierarchical = array();
+		$standard_posts = array();
+		$authors = array();
+		foreach ( $posts as $post ) {
+			$authors[] = (int) $post->post_author;
+			if ( is_post_type_hierarchical( $post->post_type ) ) {
+				$hierarchical[] = (int) $post->ID;
+			}
+			if ( 'post' === $post->post_type ) {
+				$standard_posts[] = (int) $post->ID;
+			}
+		}
+
+		$hierarchy = array();
+		if ( ! empty( $hierarchical ) ) {
+			$select = array( 'p0.ID AS root_id', 'p0.post_parent AS root_parent' );
+			$joins = '';
+			for ( $level = 1; $level <= self::MAX_PERMALINK_ANCESTOR_DEPTH; ++$level ) {
+				$previous = 0 === $level - 1 ? 'p0' : 'p' . ( $level - 1 );
+				$alias = 'p' . $level;
+				$joins .= " LEFT JOIN {$wpdb->posts} {$alias} ON {$alias}.ID = {$previous}.post_parent";
+				$select[] = "{$alias}.ID AS ancestor_{$level}";
+				$select[] = "{$alias}.post_parent AS ancestor_{$level}_parent";
+			}
+			$marks = implode( ', ', array_fill( 0, count( $hierarchical ), '%d' ) );
+			$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT ' . implode( ', ', $select ) . " FROM {$wpdb->posts} p0{$joins} WHERE p0.ID IN ({$marks})", $hierarchical ), ARRAY_A );
+			if ( ! is_array( $rows ) ) {
+				return false;
+			}
+			$ancestor_ids = array();
+			foreach ( $rows as $row ) {
+				$root = (int) $row['root_id'];
+				$hierarchy[ $root ] = array();
+				for ( $level = 1; $level <= self::MAX_PERMALINK_ANCESTOR_DEPTH; ++$level ) {
+					$ancestor = (int) ( $row[ 'ancestor_' . $level ] ?? 0 );
+					if ( $ancestor <= 0 ) {
+						break;
+					}
+					$hierarchy[ $root ][] = $ancestor;
+					$ancestor_ids[] = $ancestor;
+					if ( self::MAX_PERMALINK_ANCESTOR_DEPTH === $level && (int) ( $row[ 'ancestor_' . $level . '_parent' ] ?? 0 ) > 0 ) {
+						return false;
+					}
+				}
+			}
+			$ancestor_ids = array_values( array_unique( $ancestor_ids ) );
+			foreach ( $ancestor_ids as $ancestor_id ) {
+				clean_post_cache( $ancestor_id );
+			}
+			if ( ! empty( $ancestor_ids ) ) {
+				_prime_post_caches( $ancestor_ids, false, false );
+			}
+		}
+
+		if ( false !== strpos( $structure, '%category%' ) && ! empty( $standard_posts ) ) {
+			clean_object_term_cache( $standard_posts, 'post' );
+			update_object_term_cache( $standard_posts, 'post' );
+			$term_ids = array( absint( get_option( 'default_category' ) ) );
+			foreach ( $standard_posts as $post_id ) {
+				$terms = get_object_term_cache( $post_id, 'category' );
+				foreach ( is_array( $terms ) ? $terms : array() as $term ) {
+					$term_ids[] = (int) $term->term_id;
+				}
+			}
+			$pending = array_values( array_unique( array_filter( $term_ids ) ) );
+			for ( $level = 0; ! empty( $pending ) && $level < self::MAX_PERMALINK_ANCESTOR_DEPTH; ++$level ) {
+				_prime_term_caches( $pending, false );
+				$next = array();
+				foreach ( $pending as $term_id ) {
+					$term = get_term( $term_id, 'category' );
+					if ( $term instanceof \WP_Term && $term->parent > 0 ) {
+						$next[] = (int) $term->parent;
+					}
+				}
+				$pending = array_values( array_unique( $next ) );
+			}
+			if ( ! empty( $pending ) ) {
+				return false;
+			}
+		}
+
+		$authors = array_values( array_unique( array_filter( $authors ) ) );
+		if ( false !== strpos( $structure, '%author%' ) && ! empty( $authors ) ) {
+			cache_users( $authors );
+		}
+
+		return array(
+			'structure' => $structure,
+			'hierarchy' => $hierarchy,
+		);
+	}
+
+	/** @param array<string,mixed> $context Primed permalink context. */
+	private static function permalink_dependency_signature( \WP_Post $post, array $context ): string {
+		$data = array(
+			'permalink_structure' => (string) $context['structure'],
+			'home_url' => home_url( '/' ),
+			'post_type' => (string) $post->post_type,
+			'post_parent' => (int) $post->post_parent,
+		);
+		foreach ( $context['hierarchy'][ (int) $post->ID ] ?? array() as $ancestor_id ) {
+			$ancestor = get_post( $ancestor_id );
+			$data['ancestors'][] = $ancestor instanceof \WP_Post
+				? array( (int) $ancestor->ID, (int) $ancestor->post_parent, (string) $ancestor->post_name, (string) $ancestor->post_type )
+				: array( (int) $ancestor_id, null );
+		}
+		if ( 'post' === $post->post_type && false !== strpos( (string) $context['structure'], '%category%' ) ) {
+			$terms = get_the_category( $post->ID );
+			foreach ( $terms as $term ) {
+				$chain = array();
+				$current = $term;
+				for ( $level = 0; $current instanceof \WP_Term && $level < self::MAX_PERMALINK_ANCESTOR_DEPTH; ++$level ) {
+					$chain[] = array( (int) $current->term_id, (int) $current->parent, (string) $current->slug );
+					$current = $current->parent > 0 ? get_term( $current->parent, 'category' ) : null;
+				}
+				$data['categories'][] = $chain;
+			}
+		}
+		if ( false !== strpos( (string) $context['structure'], '%author%' ) ) {
+			$author = get_userdata( (int) $post->post_author );
+			$data['author'] = $author instanceof \WP_User ? array( (int) $author->ID, (string) $author->user_nicename ) : null;
+		}
+
+		return hash( 'sha256', (string) wp_json_encode( $data ) );
 	}
 
 	private static function rows_match_current_objects( array $rows, array $objects, bool $post_category ): bool {
@@ -941,6 +1133,7 @@ final class Site_Link_Audit {
 			'query_count' => get_num_queries() - $queries,
 			'elapsed_ms' => round( ( microtime( true ) - $started ) * 1000, 3 ),
 			'memory_delta' => max( 0, memory_get_peak_usage( true ) - self::$memory_peak_start ),
+			'memory_usage_delta' => max( 0, memory_get_usage( false ) - self::$memory_usage_start ),
 			'result_count' => isset( $result['rows'] ) ? count( $result['rows'] ) : 0,
 		);
 		$result['metrics'] = self::$last_metrics;

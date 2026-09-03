@@ -137,19 +137,75 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		await expect(
 			page.getByText( /Unresolved internal URL/ )
 		).toBeVisible();
+		await expect( page.getByText( 'Unknown (unresolved)' ) ).toBeVisible();
+		await expect(
+			page.getByRole( 'link', { name: /View target/i } )
+		).toHaveCount( 0 );
 
 		await page.goto(
 			`${ auditUrl }&category=repeated&search=${ source.id }`
 		);
-		await expect( page.getByText( /2 occurrences/ ) ).toBeVisible();
+		const repeatedRow = page.getByRole( 'row' ).filter( {
+			hasText: '2 occurrences',
+		} );
+		await expect( repeatedRow ).toContainText(
+			'Source: Audit source fixture'
+		);
+		await expect( repeatedRow ).toContainText(
+			'Target: Thin inbound fixture'
+		);
+		await expect( repeatedRow ).toContainText( 'Current target:' );
+		await expect(
+			repeatedRow.getByRole( 'link', {
+				name: 'View target Thin inbound fixture',
+			} )
+		).toBeVisible();
+		await expect(
+			repeatedRow.getByRole( 'link', {
+				name: 'Edit target Thin inbound fixture',
+			} )
+		).toBeVisible();
 		await page.goto( `${ auditUrl }&category=self&search=${ source.id }` );
-		await expect( page.getByText( /its own post identity/ ) ).toBeVisible();
+		const selfRow = page.getByRole( 'row' ).filter( {
+			hasText: 'its own post identity',
+		} );
+		await expect( selfRow ).toContainText( 'Source: Audit source fixture' );
+		await expect( selfRow ).toContainText( 'Target: Audit source fixture' );
 		await page.goto(
 			`${ auditUrl }&category=noncanonical&search=${ source.id }`
 		);
+		const noncanonicalRow = page.getByRole( 'row' ).filter( {
+			hasText: 'representative URL differs',
+		} );
+		await expect( noncanonicalRow ).toContainText(
+			'Target: Noncanonical target fixture'
+		);
+		await expect( noncanonicalRow ).toContainText( 'Observed URL:' );
+		await expect( noncanonicalRow ).toContainText( 'Current target:' );
+
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'audit-target-readonly' },
+		} );
+		await page.goto(
+			`${ auditUrl }&category=repeated&search=${ source.id }`
+		);
 		await expect(
-			page.getByText( /representative URL differs/ )
+			page.getByRole( 'link', {
+				name: 'View target Thin inbound fixture',
+			} )
 		).toBeVisible();
+		await expect(
+			page.getByRole( 'link', {
+				name: 'Edit target Thin inbound fixture',
+			} )
+		).toHaveCount( 0 );
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'available' },
+		} );
 		await expect(
 			page.getByRole( 'button', { name: /repair|fix|replace/i } )
 		).toHaveCount( 0 );

@@ -13,9 +13,11 @@ use Intertexere\Site_Link_Audit;
 
 class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 	private int $administrator_id;
+	private string $original_permalink_structure;
 
 	public function set_up(): void {
 		parent::set_up();
+		$this->original_permalink_structure = (string) get_option( 'permalink_structure' );
 		update_option( Settings::OPTION, Settings::defaults(), false );
 		delete_option( Indexer::LOCK_OPTION );
 		delete_option( Indexer::RERUN_OPTION );
@@ -32,6 +34,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		$this->set_permalink_structure( $this->original_permalink_structure );
 		remove_all_actions( 'intertexere_audit_after_overview_read' );
 		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
 		remove_all_actions( 'intertexere_audit_before_final_object_authority' );
@@ -145,6 +148,90 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertCount( 1, $noncanonical['rows'] );
 		$this->assertSame( $target, $noncanonical['rows'][0]['target_post_id'] );
 		$this->assertStringContainsString( 'representative URL', $noncanonical['rows'][0]['finding_reason'] );
+	}
+
+	public function test_noncanonical_requires_current_query_identity_and_omits_unproved_path_aliases(): void {
+		global $wpdb;
+		$this->set_permalink_structure( '/%postname%/' );
+
+		$target = $this->post( 'Current URL target' );
+		$canonical = (string) get_permalink( $target );
+		$canonical_source = $this->post( 'Canonical URL source', '<a href="' . esc_url( $canonical ) . '">Target</a>' );
+		$this->assertCount( 0, $this->page( 'noncanonical', $canonical_source )['rows'] );
+
+		$relative = (string) wp_parse_url( $canonical, PHP_URL_PATH );
+		$query = (string) wp_parse_url( $canonical, PHP_URL_QUERY );
+		$relative .= '' !== $query ? '?' . $query : '';
+		$relative_source = $this->post( 'Relative canonical source', '<a href="' . esc_attr( $relative ) . '">Target</a>' );
+		$this->assertCount( 0, $this->page( 'noncanonical', $relative_source )['rows'] );
+
+		$query_source = $this->post( 'Query identity source', '<a href="/?p=' . $target . '&audit=1">Target</a>' );
+		$query_result = $this->page( 'noncanonical', $query_source );
+		$this->assertSame( 'current', $query_result['status'] );
+		$this->assertCount( 1, $query_result['rows'] );
+		$this->assertSame( $target, $query_result['rows'][0]['target_post_id'] );
+
+		$other = $this->post( 'Other query identity' );
+		$mismatch_source = $this->post( 'Historical mismatch source', '<a href="/?p=' . $other . '">Other</a>' );
+		$wpdb->update(
+			Schema::link_edges_table_name(),
+			array( 'target_post_id' => $target, 'target_identity_hash' => hash( 'sha256', 'post:' . $target ) ),
+			array( 'generation' => get_option( Schema::GRAPH_GENERATION_OPTION ), 'source_post_id' => $mismatch_source ),
+			array( '%d', '%s' ),
+			array( '%s', '%d' )
+		);
+		$this->assertCount( 0, $this->page( 'noncanonical', $mismatch_source )['rows'], 'Historical target identity must not override the representative query ID.' );
+
+		$old_target = $this->post( 'Old alias target' );
+		$old_url = (string) get_permalink( $old_target );
+		$old_source = $this->post( 'Old alias source', '<a href="' . esc_url( $old_url ) . '">Old target</a>' );
+		wp_update_post( array( 'ID' => $old_target, 'post_name' => 'new-alias-target' ) );
+		add_post_meta( $old_target, '_wp_old_slug', 'old-alias-target' );
+		$this->assertCount( 0, $this->page( 'noncanonical', $old_source )['rows'], 'Schema 2 does not set-wise prove retained old-slug ownership, so valid aliases are conservatively omitted.' );
+
+		$claimant = self::factory()->post->create(
+			array(
+				'post_title' => 'Old alias path claimant',
+				'post_name' => 'old-alias-target',
+				'post_status' => 'publish',
+				'post_author' => $this->administrator_id,
+			)
+		);
+		Indexer::refresh_post( $claimant );
+		Link_Graph::refresh_post( $claimant );
+		$this->assertCount( 0, $this->page( 'noncanonical', $old_source )['rows'], 'A path now claimed by another post must not be reported for the historical target.' );
+		delete_post_meta( $old_target, '_wp_old_slug', 'old-alias-target' );
+		$this->assertCount( 0, $this->page( 'noncanonical', $old_source )['rows'], 'An unproved old path remains omitted without being called broken.' );
+
+		$overview = Site_Link_Audit::overview();
+		$this->assertSame( 'current', $overview['status'] );
+		$this->assertSame( 1, $overview['counts']['noncanonical'] );
+		$this->assertCount( 1, $this->page( 'noncanonical', $query_source )['rows'] );
+	}
+
+	public function test_noncanonical_final_reread_rechecks_current_representative_query_identity(): void {
+		global $wpdb;
+
+		$target = $this->post( 'Representative identity target' );
+		$other = $this->post( 'Representative identity replacement' );
+		$source = $this->post( 'Representative identity source', '<a href="/?p=' . $target . '&audit=before">Target</a>' );
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			static function () use ( $wpdb, $source, $other ): void {
+				$wpdb->update(
+					Schema::link_edges_table_name(),
+					array( 'normalized_url' => home_url( '/?p=' . $other . '&audit=after' ) ),
+					array( 'generation' => get_option( Schema::GRAPH_GENERATION_OPTION ), 'source_post_id' => $source ),
+					array( '%s' ),
+					array( '%s', '%d' )
+				);
+			},
+			10,
+			0
+		);
+		$result = $this->page( 'noncanonical', $source );
+		$this->assertSame( 'stale', $result['status'] );
+		$this->assertArrayNotHasKey( 'rows', $result );
 	}
 
 	public function test_resolved_unavailable_target_reasons_are_current_and_distinct(): void {
@@ -619,6 +706,60 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		remove_role( 'intertexere_audit_viewer' );
 	}
 
+	public function test_resolved_edge_rows_render_source_target_current_permalink_and_capability_filtered_actions(): void {
+		$target = $this->post( 'Rendered edge target' );
+		$source = $this->post( 'Rendered edge source', '<a href="' . esc_url( get_permalink( $target ) ) . '">One</a><a href="' . esc_url( get_permalink( $target ) ) . '">Two</a>' );
+		$repeated = $this->page( 'repeated', $source );
+		$this->assertSame( 'current', $repeated['status'] );
+		$this->assertSame( $target, $repeated['rows'][0]['target_post_id'] );
+		$this->assertSame( get_permalink( $target ), $repeated['rows'][0]['target_current']['permalink'] );
+
+		$_GET = array( 'page' => 'intertexere-site-link-audit', 'category' => 'repeated', 'search' => (string) $source );
+		ob_start();
+		Admin::render_audit_page();
+		$html = (string) ob_get_clean();
+		$_GET = array();
+		$this->assertStringContainsString( '<strong>Source:</strong> Rendered edge source', $html );
+		$this->assertStringContainsString( '<strong>Target:</strong> Rendered edge target', $html );
+		$this->assertStringContainsString( 'Current target:', $html );
+		$this->assertStringContainsString( esc_url( (string) get_permalink( $target ) ), $html );
+		$this->assertStringContainsString( 'View target Rendered edge target', $html );
+		$this->assertStringContainsString( 'Edit target Rendered edge target', $html );
+
+		wp_update_post( array( 'ID' => $source, 'post_content' => '<a href="' . esc_url( get_permalink( $source ) ) . '">Self</a>' ) );
+		$self = $this->page( 'self', $source );
+		$this->assertSame( $source, $self['rows'][0]['source_post_id'] );
+		$this->assertSame( $source, $self['rows'][0]['target_post_id'] );
+
+		wp_update_post( array( 'ID' => $source, 'post_content' => '<a href="/unknown-rendered-target/">Unknown</a>' ) );
+		$unresolved = $this->page( 'unavailable', $source );
+		$this->assertNull( $unresolved['rows'][0]['target_post_id'] );
+		$this->assertArrayNotHasKey( 'target_current', $unresolved['rows'][0] );
+		$_GET = array( 'page' => 'intertexere-site-link-audit', 'category' => 'unavailable', 'search' => (string) $source );
+		ob_start();
+		Admin::render_audit_page();
+		$unresolved_html = (string) ob_get_clean();
+		$_GET = array();
+		$this->assertStringContainsString( 'Unknown (unresolved)', $unresolved_html );
+		$this->assertStringNotContainsString( 'View target', $unresolved_html );
+
+		wp_update_post( array( 'ID' => $source, 'post_content' => '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>' ) );
+		wp_update_post( array( 'ID' => $target, 'post_status' => 'private' ) );
+		$unavailable = $this->page( 'unavailable', $source );
+		$this->assertStringContainsString( 'private', $unavailable['rows'][0]['finding_reason'] );
+		$this->assertSame( $target, $unavailable['rows'][0]['target_current']['id'] );
+
+		wp_update_post( array( 'ID' => $target, 'post_status' => 'publish' ) );
+		wp_update_post( array( 'ID' => $source, 'post_content' => '<a href="' . esc_url( get_permalink( $target ) ) . '">One</a><a href="' . esc_url( get_permalink( $target ) ) . '">Two</a>' ) );
+		add_role( 'intertexere_edge_viewer', 'Edge Audit Viewer', array( 'read' => true, Admin::CAPABILITY => true ) );
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'intertexere_edge_viewer' ) ) );
+		$readonly = $this->page( 'repeated', $source );
+		$this->assertTrue( $readonly['rows'][0]['target_current']['can_view'] );
+		$this->assertFalse( $readonly['rows'][0]['target_current']['can_edit'] );
+		$this->assertFalse( $readonly['rows'][0]['source_can_edit'] );
+		remove_role( 'intertexere_edge_viewer' );
+	}
+
 	public function test_database_failure_returns_safe_unavailable_state(): void {
 		$this->post( 'Database failure target' );
 		$break_classification = static function ( string $query ): string {
@@ -684,7 +825,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 
 		$result = Site_Link_Audit::page( $this->request( 'orphans', 50 ) );
 		$metrics = $result['metrics'];
-		fwrite( STDOUT, sprintf( "\n0.6 50-row page: %d queries, %.3f ms, %d bytes peak delta, %d rows\n", $metrics['query_count'], $metrics['elapsed_ms'], $metrics['memory_delta'], $metrics['result_count'] ) );
+		fwrite( STDOUT, sprintf( "\n0.6 50-row page: %d queries, %.3f ms, %d bytes peak delta, %d bytes live delta, %d rows\n", $metrics['query_count'], $metrics['elapsed_ms'], $metrics['memory_delta'], $metrics['memory_usage_delta'], $metrics['result_count'] ) );
 		$this->assertSame( 'current', $result['status'] );
 		$this->assertCount( 50, $result['rows'] );
 		$this->assertLessThanOrEqual( 14, $metrics['query_count'] );
@@ -693,6 +834,89 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		foreach ( $result['rows'] as $row ) {
 			$this->assertLessThanOrEqual( 2, count( $row['evidence'] ) );
 		}
+	}
+
+	public function test_hierarchical_page_permalink_dependencies_are_bulk_primed_and_bounded(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+		for ( $i = 0; $i < 19; ++$i ) {
+			$root = $this->page_post( 'Hierarchy root ' . $i );
+			$parent = $this->page_post( 'Hierarchy parent ' . $i, $root );
+			$this->page_post( 'Hierarchy child ' . $i, $parent );
+		}
+
+		$twenty = Site_Link_Audit::page( $this->request( 'orphans', 20 ) );
+		$this->assertSame( 'current', $twenty['status'] );
+		$this->assertCount( 20, $twenty['rows'] );
+		$this->assertLessThanOrEqual( 12, $twenty['metrics']['query_count'] );
+		$this->assertLessThan( 750, $twenty['metrics']['elapsed_ms'] );
+		foreach ( $twenty['rows'] as $row ) {
+			$this->assertSame( get_permalink( $row['post_id'] ), $row['current_permalink'] );
+		}
+
+		$fifty = Site_Link_Audit::page( $this->request( 'orphans', 50 ) );
+		$this->assertSame( 'current', $fifty['status'] );
+		$this->assertCount( 50, $fifty['rows'] );
+		$this->assertLessThanOrEqual( 14, $fifty['metrics']['query_count'] );
+		$this->assertLessThan( 1000, $fifty['metrics']['elapsed_ms'] );
+		$this->assertLessThan( 32 * MB_IN_BYTES, $fifty['metrics']['memory_delta'] );
+		fwrite( STDOUT, sprintf( "\n0.6 hierarchical pages: 20 rows %d queries %.3f ms; 50 rows %d queries %.3f ms, %d bytes peak delta, %d bytes live delta\n", $twenty['metrics']['query_count'], $twenty['metrics']['elapsed_ms'], $fifty['metrics']['query_count'], $fifty['metrics']['elapsed_ms'], $fifty['metrics']['memory_delta'], $fifty['metrics']['memory_usage_delta'] ) );
+	}
+
+	public function test_category_and_author_permalink_dependencies_are_bulk_primed(): void {
+		$this->set_permalink_structure( '/%author%/%category%/%postname%/' );
+		for ( $i = 0; $i < 22; ++$i ) {
+			$author = self::factory()->user->create(
+				array(
+					'user_login' => 'audit_author_' . $i,
+					'user_nicename' => 'audit-author-' . $i,
+					'role' => 'author',
+				)
+			);
+			$parent = self::factory()->category->create( array( 'name' => 'Audit parent ' . $i, 'slug' => 'audit-parent-' . $i ) );
+			$child = self::factory()->category->create( array( 'name' => 'Audit child ' . $i, 'slug' => 'audit-child-' . $i, 'parent' => $parent ) );
+			$post_id = self::factory()->post->create(
+				array(
+					'post_title' => 'Token permalink post ' . $i,
+					'post_name' => 'token-permalink-post-' . $i,
+					'post_content' => '<p>Permalink dependency fixture.</p>',
+					'post_status' => 'publish',
+					'post_author' => $author,
+				)
+			);
+			wp_set_post_categories( $post_id, array( $child ) );
+			Indexer::refresh_post( $post_id );
+			Link_Graph::refresh_post( $post_id );
+		}
+
+		$result = Site_Link_Audit::page( $this->request( 'orphans', 20 ) );
+		$this->assertSame( 'current', $result['status'] );
+		$this->assertCount( 20, $result['rows'] );
+		$this->assertLessThanOrEqual( 12, $result['metrics']['query_count'] );
+		$this->assertLessThan( 750, $result['metrics']['elapsed_ms'] );
+		foreach ( $result['rows'] as $row ) {
+			$this->assertSame( get_permalink( $row['post_id'] ), $row['current_permalink'] );
+			$this->assertStringContainsString( '/audit-author-', $row['current_permalink'] );
+			$this->assertStringContainsString( '/audit-parent-', $row['current_permalink'] );
+		}
+		fwrite( STDOUT, sprintf( "\n0.6 category/author permalinks: 20 rows %d queries, %.3f ms\n", $result['metrics']['query_count'], $result['metrics']['elapsed_ms'] ) );
+	}
+
+	public function test_hierarchical_parent_slug_race_invalidates_child_permalink_authority(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+		$root = $this->page_post( 'Hierarchy race root' );
+		$parent = $this->page_post( 'Hierarchy race parent', $root );
+		$child = $this->page_post( 'Hierarchy race child', $parent );
+		add_action(
+			'intertexere_audit_before_final_object_authority',
+			static function () use ( $root ): void {
+				wp_update_post( array( 'ID' => $root, 'post_name' => 'hierarchy-race-root-changed' ) );
+			},
+			10,
+			0
+		);
+		$result = $this->page( 'orphans', $child );
+		$this->assertSame( 'stale', $result['status'] );
+		$this->assertArrayNotHasKey( 'rows', $result );
 	}
 
 	public function test_representative_125_post_500_edge_fixture_contains_every_initial_category(): void {
@@ -807,7 +1031,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		add_filter( 'intertexere_is_post_eligible', $counter );
 		$query_start = get_num_queries();
 		$time_start = microtime( true );
-		$memory_start = memory_get_usage( true );
+		$memory_start = memory_get_usage( false );
 		$initial = Site_Link_Audit::classify_targets( array( $target ), $this->generations() );
 		$this->assertSame( 2, $initial[ $target ]['class'] );
 		$this->assertCount( 2, $initial[ $target ]['evidence'] );
@@ -825,7 +1049,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$final = Site_Link_Audit::classify_targets( array( $target ), $this->generations() );
 		$elapsed = round( ( microtime( true ) - $time_start ) * 1000, 3 );
 		$query_count = get_num_queries() - $query_start;
-		$memory_delta = max( 0, memory_get_usage( true ) - $memory_start );
+		$memory_delta = max( 0, memory_get_usage( false ) - $memory_start );
 		remove_filter( 'intertexere_is_post_eligible', $counter );
 
 		$this->assertSame( 1, $final[ $target ]['class'] );
@@ -906,6 +1130,23 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 				'post_content' => $content,
 				'post_status' => $status,
 				'post_author' => $this->administrator_id,
+			)
+		);
+		Indexer::refresh_post( $post_id );
+		Link_Graph::refresh_post( $post_id );
+		return $post_id;
+	}
+
+	private function page_post( string $title, int $parent = 0 ): int {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_title' => $title,
+				'post_name' => sanitize_title( $title ),
+				'post_content' => '<p>Hierarchical permalink fixture.</p>',
+				'post_status' => 'publish',
+				'post_author' => $this->administrator_id,
+				'post_parent' => $parent,
+				'post_type' => 'page',
 			)
 		);
 		Indexer::refresh_post( $post_id );
