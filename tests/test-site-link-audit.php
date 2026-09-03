@@ -31,7 +31,8 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$role->add_cap( Admin::CAPABILITY );
 		$this->administrator_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
 		wp_set_current_user( $this->administrator_id );
-}
+	}
+
 	public function tear_down(): void {
 		$this->set_permalink_structure( $this->original_permalink_structure );
 		remove_all_actions( 'intertexere_audit_after_overview_read' );

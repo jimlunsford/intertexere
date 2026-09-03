@@ -46,7 +46,8 @@ final class Site_Link_Audit {
 		}
 		if ( isset( $query['page'] ) && 'intertexere-site-link-audit' !== wp_unslash( $query['page'] ) ) {
 			return self::invalid( 'The audit page identity is invalid.' );
-}
+		}
+
 		$category = isset( $query['category'] ) ? sanitize_key( self::scalar( $query['category'] ) ) : '';
 		if ( '' !== $category && ! in_array( $category, self::CATEGORIES, true ) ) {
 			return self::invalid( 'The audit category is invalid.' );
