@@ -27,7 +27,7 @@ add_action(
 				},
 				'callback'            => static function ( WP_REST_Request $request ): WP_REST_Response {
 					$mode = sanitize_key( (string) $request->get_param( 'mode' ) );
-					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure', 'insertion-delayed', 'audit-stale', 'audit-unavailable' ), true ) ) {
+					if ( ! in_array( $mode, array( 'available', 'disabled', 'unavailable', 'delayed', 'failure', 'insertion-delayed', 'audit-stale', 'audit-unavailable', 'audit-unauthorized' ), true ) ) {
 						$mode = 'available';
 					}
 					update_option( 'intertexere_e2e_ai_mode', $mode, false );
@@ -36,6 +36,17 @@ add_action(
 			)
 		);
 	}
+);
+
+add_filter(
+	'user_has_cap',
+	static function ( array $allcaps ): array {
+		if ( 'audit-unauthorized' === get_option( 'intertexere_e2e_ai_mode', 'available' ) ) {
+			unset( $allcaps['manage_intertexere'] );
+		}
+		return $allcaps;
+	},
+	99
 );
 
 add_filter(

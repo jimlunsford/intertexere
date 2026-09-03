@@ -116,6 +116,7 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		await page.goto( auditUrl );
 
 		await page
+			.getByLabel( 'Audit categories' )
 			.getByRole( 'link', { name: 'Thin inbound coverage' } )
 			.click();
 		await page
@@ -208,25 +209,15 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		);
 	} );
 
-	test( 'an editor without manage_intertexere cannot access site-wide audit data', async ( {
-		browser,
+	test( 'a user without manage_intertexere cannot access site-wide audit data', async ( {
+		page,
 		requestUtils,
 	} ) => {
-		const username = `audit_editor_${ Date.now() }`;
-		const password = 'intertexere-e2e-password';
-		await requestUtils.createUser( {
-			username,
-			email: `${ username }@example.com`,
-			password,
-			roles: [ 'editor' ],
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'audit-unauthorized' },
 		} );
-		const context = await browser.newContext();
-		const page = await context.newPage();
-		await page.goto( '/wp-login.php' );
-		await page.getByLabel( 'Username or Email Address' ).fill( username );
-		await page.getByLabel( 'Password', { exact: true } ).fill( password );
-		await page.getByRole( 'button', { name: 'Log In' } ).click();
-		await expect( page ).toHaveURL( /wp-admin/ );
 		const response = await page.goto( auditUrl );
 		expect( response.status() ).toBe( 403 );
 		await expect(
@@ -235,6 +226,5 @@ test.describe( 'Intertexere Site Link Audit', () => {
 		await expect(
 			page.getByText( 'Intertexere Site Link Audit', { exact: true } )
 		).toHaveCount( 0 );
-		await context.close();
 	} );
 } );
