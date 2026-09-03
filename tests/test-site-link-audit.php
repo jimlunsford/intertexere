@@ -31,8 +31,7 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$role->add_cap( Admin::CAPABILITY );
 		$this->administrator_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
 		wp_set_current_user( $this->administrator_id );
-	}
-
+}
 	public function tear_down(): void {
 		$this->set_permalink_structure( $this->original_permalink_structure );
 		remove_all_actions( 'intertexere_audit_after_overview_read' );
@@ -215,18 +214,61 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertCount( 1, $this->page( 'noncanonical', $query_source )['rows'] );
 	}
 
+	public function test_noncanonical_query_parser_uses_first_delimiter_and_separator_boundaries(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+
+		$target = $this->post( 'Query parser target' );
+		$page_target = $this->page_post( 'Query parser page target' );
+		$other = $this->post( 'Query parser other target' );
+		$cases = array(
+			'p first' => array( $target, '/?p=' . $target, true ),
+			'p before unrelated parameter' => array( $target, '/?p=' . $target . '&foo=bar', true ),
+			'p after unrelated parameter' => array( $target, '/?foo=bar&p=' . $target, true ),
+			'page identity' => array( $page_target, '/?page_id=' . $page_target, true ),
+			'literal question mark before real p parameter' => array( $target, '/?next=?something&p=' . $target, true ),
+			'attachment identity' => array( $target, '/?attachment_id=' . $target, true ),
+			'embedded p' => array( $target, '/?next=?p=' . $target, false ),
+			'embedded page identity' => array( $target, '/?next=?page_id=' . $target, false ),
+			'embedded attachment identity' => array( $target, '/?next=?attachment_id=' . $target, false ),
+			'embedded unseparated p' => array( $target, '/?foo=p=' . $target, false ),
+			'historical target mismatch' => array( $target, '/?p=' . $other, false ),
+			'two identity keys' => array( $target, '/?p=' . $target . '&page_id=' . $target, false ),
+			'duplicate matching p' => array( $target, '/?p=' . $target . '&p=' . $target, false ),
+			'duplicate conflicting p' => array( $target, '/?p=' . $target . '&p=' . $other, false ),
+		);
+
+		$valid_sources = array();
+		foreach ( $cases as $label => $case ) {
+			list( $case_target, $url, $valid ) = $case;
+			$source = $this->post( 'Query parser source ' . $label, '<a href="' . esc_url( get_permalink( $case_target ) ) . '">Target</a>' );
+			$this->rewrite_edge_identity_url( $source, $case_target, home_url( $url ) );
+			$result = $this->page( 'noncanonical', $source );
+			$this->assertSame( 'current', $result['status'], $label );
+			$this->assertCount( $valid ? 1 : 0, $result['rows'], $label );
+			if ( $valid ) {
+				$valid_sources[] = $source;
+			}
+		}
+
+		$overview = Site_Link_Audit::overview();
+		$this->assertSame( 'current', $overview['status'] );
+		$this->assertSame( count( $valid_sources ), $overview['counts']['noncanonical'], 'Overview must use the same first-delimiter predicate as category selection.' );
+		$category = $this->page( 'noncanonical' );
+		$this->assertSame( 'current', $category['status'] );
+		$this->assertCount( count( $valid_sources ), $category['rows'] );
+	}
+
 	public function test_noncanonical_final_reread_rechecks_current_representative_query_identity(): void {
 		global $wpdb;
 
 		$target = $this->post( 'Representative identity target' );
-		$other = $this->post( 'Representative identity replacement' );
 		$source = $this->post( 'Representative identity source', '<a href="/?p=' . $target . '&audit=before">Target</a>' );
 		add_action(
 			'intertexere_audit_before_final_derived_evidence',
-			static function () use ( $wpdb, $source, $other ): void {
+			static function () use ( $wpdb, $source, $target ): void {
 				$wpdb->update(
 					Schema::link_edges_table_name(),
-					array( 'normalized_url' => home_url( '/?p=' . $other . '&audit=after' ) ),
+					array( 'normalized_url' => home_url( '/?next=?p=' . $target ) ),
 					array( 'generation' => get_option( Schema::GRAPH_GENERATION_OPTION ), 'source_post_id' => $source ),
 					array( '%s' ),
 					array( '%s', '%d' )
@@ -238,6 +280,37 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$result = $this->page( 'noncanonical', $source );
 		$this->assertSame( 'stale', $result['status'] );
 		$this->assertArrayNotHasKey( 'rows', $result );
+	}
+
+	public function test_noncanonical_newly_valid_identity_does_not_enter_selected_page_during_request(): void {
+		global $wpdb;
+
+		$target = $this->post( 'New identity target' );
+		$source = $this->post( 'New identity source', '<a href="' . esc_url( get_permalink( $target ) ) . '">Target</a>' );
+		$this->rewrite_edge_identity_url( $source, $target, home_url( '/?next=?p=' . $target ) );
+		add_action(
+			'intertexere_audit_before_final_derived_evidence',
+			static function () use ( $wpdb, $source, $target ): void {
+				$wpdb->update(
+					Schema::link_edges_table_name(),
+					array( 'normalized_url' => home_url( '/?next=?something&p=' . $target ) ),
+					array( 'generation' => get_option( Schema::GRAPH_GENERATION_OPTION ), 'source_post_id' => $source ),
+					array( '%s' ),
+					array( '%s', '%d' )
+				);
+			},
+			10,
+			0
+		);
+
+		$result = $this->page( 'noncanonical', $source );
+		$this->assertSame( 'current', $result['status'] );
+		$this->assertCount( 0, $result['rows'], 'A finding created after selection must wait for a later request.' );
+		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
+
+		$refreshed = $this->page( 'noncanonical', $source );
+		$this->assertSame( 'current', $refreshed['status'] );
+		$this->assertCount( 1, $refreshed['rows'] );
 	}
 
 	public function test_resolved_unavailable_target_reasons_are_current_and_distinct(): void {
@@ -1158,6 +1231,26 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		Indexer::refresh_post( $post_id );
 		Link_Graph::refresh_post( $post_id );
 		return $post_id;
+	}
+
+	private function rewrite_edge_identity_url( int $source_id, int $target_id, string $normalized_url ): void {
+		global $wpdb;
+
+		$updated = $wpdb->update(
+			Schema::link_edges_table_name(),
+			array(
+				'target_post_id' => $target_id,
+				'target_identity_hash' => hash( 'sha256', 'post:' . $target_id ),
+				'normalized_url' => $normalized_url,
+			),
+			array(
+				'generation' => get_option( Schema::GRAPH_GENERATION_OPTION ),
+				'source_post_id' => $source_id,
+			),
+			array( '%d', '%s', '%s' ),
+			array( '%s', '%d' )
+		);
+		$this->assertSame( 1, $updated );
 	}
 
 	/**

@@ -46,8 +46,7 @@ final class Site_Link_Audit {
 		}
 		if ( isset( $query['page'] ) && 'intertexere-site-link-audit' !== wp_unslash( $query['page'] ) ) {
 			return self::invalid( 'The audit page identity is invalid.' );
-		}
-
+}
 		$category = isset( $query['category'] ) ? sanitize_key( self::scalar( $query['category'] ) ) : '';
 		if ( '' !== $category && ! in_array( $category, self::CATEGORIES, true ) ) {
 			return self::invalid( 'The audit category is invalid.' );
@@ -564,7 +563,7 @@ final class Site_Link_Audit {
 	 * by the same current post.
 	 */
 	private static function noncanonical_condition( string $type_marks, string $status_marks ): string {
-		$query = "CONCAT('&', SUBSTRING_INDEX(e.normalized_url, '?', -1), '&')";
+		$query = "CONCAT('&', SUBSTRING(e.normalized_url, LOCATE('?', e.normalized_url) + 1), '&')";
 		$p_count = "((CHAR_LENGTH({$query}) - CHAR_LENGTH(REPLACE({$query}, '&p=', ''))) / 3)";
 		$page_count = "((CHAR_LENGTH({$query}) - CHAR_LENGTH(REPLACE({$query}, '&page_id=', ''))) / 9)";
 		$attachment_count = "((CHAR_LENGTH({$query}) - CHAR_LENGTH(REPLACE({$query}, '&attachment_id=', ''))) / 15)";
