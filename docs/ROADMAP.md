@@ -144,7 +144,7 @@ Acceptance direction:
 
 ## 0.5 Explicit Link Insertion
 
-Status: planned and not implemented. See [Explicit Link Insertion](LINK-INSERTION.md) and [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
+Status: implementation acceptance complete on `feature/0.5-link-insertion`; independent review remains required before merge. See [Explicit Link Insertion](LINK-INSERTION.md) and [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
 
 Goal: allow the editor to approve a suggestion and insert a normal WordPress link safely.
 

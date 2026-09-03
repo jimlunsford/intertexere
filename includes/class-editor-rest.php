@@ -11,6 +11,7 @@ final class Editor_REST {
 	public const NAMESPACE = 'intertexere/v1';
 	public const ROUTE = '/editor-suggestions';
 	public const AI_ROUTE = '/editor-suggestions/ai-enhance';
+	public const INSERTION_ROUTE = '/editor-suggestions/validate-insertion';
 
 	/**
 	 * Register the route.
@@ -32,6 +33,16 @@ final class Editor_REST {
 			array(
 				'methods'             => \WP_REST_Server::CREATABLE,
 				'callback'            => array( self::class, 'enhance_with_ai' ),
+				'permission_callback' => array( self::class, 'permissions' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			self::INSERTION_ROUTE,
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( self::class, 'validate_insertion' ),
 				'permission_callback' => array( self::class, 'permissions' ),
 			)
 		);
@@ -97,7 +108,7 @@ final class Editor_REST {
 		}
 
 		$payload   = $request->get_json_params();
-		if ( '/' . self::NAMESPACE . self::AI_ROUTE === $request->get_route() ) {
+		if ( in_array( $request->get_route(), array( '/' . self::NAMESPACE . self::AI_ROUTE, '/' . self::NAMESPACE . self::INSERTION_ROUTE ), true ) ) {
 			$payload = is_array( $payload ) && isset( $payload['draft'] ) ? $payload['draft'] : null;
 		}
 		$post_id   = is_array( $payload ) && isset( $payload['post_id'] ) && is_int( $payload['post_id'] ) ? $payload['post_id'] : null;
@@ -169,6 +180,26 @@ final class Editor_REST {
 		return is_wp_error( $result ) ? $result : rest_ensure_response( $result );
 	}
 
+	/**
+	 * Validate one explicit local insertion without writing content.
+	 *
+	 * @return \WP_REST_Response|\WP_Error
+	 */
+	public static function validate_insertion( \WP_REST_Request $request ) {
+		if ( ! self::has_json_content_type( $request ) ) {
+			return self::json_required_error();
+		}
+
+		$transport = self::validate_transport_size( $request );
+		if ( is_wp_error( $transport ) ) {
+			return $transport;
+		}
+
+		do_action( 'intertexere_insertion_rest_before_validation', $request );
+		$result = Insertion_Validation::validate( $request->get_json_params() );
+		return is_wp_error( $result ) ? $result : rest_ensure_response( $result );
+	}
+
 	private static function has_json_content_type( \WP_REST_Request $request ): bool {
 		return 'application/json' === strtolower( trim( explode( ';', (string) $request->get_header( 'Content-Type' ) )[0] ) );
 	}
@@ -206,6 +237,7 @@ final class Editor_REST {
 		return array(
 			'/' . self::NAMESPACE . self::ROUTE,
 			'/' . self::NAMESPACE . self::AI_ROUTE,
+			'/' . self::NAMESPACE . self::INSERTION_ROUTE,
 		);
 	}
 }

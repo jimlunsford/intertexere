@@ -11,6 +11,7 @@ jest.mock( '@wordpress/components', () => {
 			children,
 			icon: ignoredIcon,
 			variant: ignoredVariant,
+			isBusy: ignoredBusy,
 			...props
 		} ) =>
 			href ? (
@@ -42,6 +43,97 @@ const suggestion = {
 };
 
 describe( 'analysis presentation', () => {
+	test( 'renders Insert Link only for current exact insertion evidence and requires a click', () => {
+		const onInsert = jest.fn();
+		const insertionEvidence = new Map( [
+			[
+				14,
+				{
+					block_client_id: 'paragraph-1',
+					block_name: 'core/paragraph',
+					exact_text: 'literal destination',
+					occurrence: 0,
+				},
+			],
+		] );
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ insertionEvidence }
+				insertionStates={ {} }
+				onInsert={ onInsert }
+			/>
+		);
+		expect( onInsert ).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'Insert Link' } )
+		);
+		expect( onInsert ).toHaveBeenCalledTimes( 1 );
+		expect( onInsert ).toHaveBeenCalledWith(
+			suggestion,
+			insertionEvidence.get( 14 )
+		);
+	} );
+
+	test( 'exposes validating and announced success states accessibly', () => {
+		const insertionEvidence = new Map( [
+			[ 14, { exact_text: 'literal destination' } ],
+		] );
+		const { rerender } = render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ insertionEvidence }
+				insertionStates={ {
+					14: {
+						status: 'validating',
+						message: 'Validation in progress.',
+					},
+				} }
+				onInsert={ jest.fn() }
+			/>
+		);
+		const validating = screen.getByRole( 'button', {
+			name: 'Insert Link',
+		} );
+		expect( validating ).toBeDisabled();
+		expect( validating ).toHaveTextContent( 'Validating…' );
+		expect( screen.getByRole( 'status' ) ).toHaveTextContent(
+			'Validation in progress.'
+		);
+
+		rerender(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ insertionEvidence }
+				insertionStates={ {
+					14: { status: 'inserted', message: 'Link inserted.' },
+				} }
+				onInsert={ jest.fn() }
+			/>
+		);
+		expect(
+			screen.queryByRole( 'button', { name: 'Insert Link' } )
+		).toBeNull();
+		expect( screen.getByRole( 'status' ) ).toHaveTextContent(
+			'Link inserted.'
+		);
+	} );
+
 	test.each( [
 		[ 'ready', /Analyze the unsaved draft/ ],
 		[ 'loading', /Analyzing the current draft/ ],

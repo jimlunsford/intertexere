@@ -145,7 +145,7 @@ Location data is advisory and session scoped. A location contains:
 
 The anchor finder prefers an exact, contiguous phrase already present in one included unit. It may select a candidate title phrase or the longest stable run of overlapping meaningful terms, with deterministic shortest-location and first-occurrence tie breaking. It does not cross block, table-cell, caption, or incompatible markup boundaries and does not manufacture or rewrite words. If no safe phrase exists, anchor text and offsets are null while the suggestion may still identify the related block or draft-level relationship.
 
-Block client IDs are transient editor locators, not durable content identity. Future insertion work in 0.5 must reparse the current block, verify the draft and block hashes, re-resolve the target, and confirm the exact occurrence before any mutation. 0.3 performs none of those mutations.
+Block client IDs are transient editor locators, not durable content identity. The 0.5 insertion layer reparses the current block, verifies canonical draft and direct-content identities, re-resolves the target, and confirms exact text plus occurrence before any mutation. The 0.3 analysis service itself remains read-only.
 
 ## Suggestion response contract
 
@@ -238,14 +238,14 @@ Actions are:
 - **Dismiss**, which hides that target only for the current analysis in the current editor session;
 - **Analyze draft** or **Refresh suggestions**.
 
-There is no Insert Link action. Session dismissals are keyed by analysis ID and target post ID, reset on navigation or fresh analysis, and are never persisted. Persistent preference learning belongs to a later explicit product decision.
+The 0.3 analyzer exposes no mutation endpoint. In 0.5, its current exact location evidence may make an Insert Link action eligible, but a dedicated server validation and a final synchronous client check are still mandatory. Session dismissals are keyed by analysis ID and target post ID, reset on navigation or fresh analysis, and are never persisted.
 
 ## Relationship to other milestones
 
 - 0.1 remains the only content-index store. 0.3 reads its active generation and adds no parallel content copy.
 - 0.2 remains the only authoritative derived edge store. 0.3 reads active graph relationships and unsaved draft links without weakening rebuild concurrency.
 - 0.4 implements optional filtering, reranking, explanation, and exact-existing-anchor selection for the bounded deterministic candidate set through WordPress-native AI. Deterministic results remain authoritative and independently usable. See [WordPress-Native AI Integration](AI-INTEGRATION.md).
-- 0.5 is fully planned and not implemented. It may validate and insert an explicitly approved suggestion only after current deterministic candidate, target, draft, exact occurrence, duplicate, and RichText boundary validation. Every 0.3 location is stale until revalidated. The initial mutation allowlist is paragraph, heading, and list-item direct `content` attributes; other analyzable locations remain read-only. See [Explicit Link Insertion](LINK-INSERTION.md).
+- 0.5 implements explicit insertion only after current deterministic candidate, target, draft, exact occurrence, duplicate, and RichText boundary validation. Every 0.3 location remains a hint until revalidated. The mutation allowlist is paragraph, heading, and list-item direct `content` attributes; other analyzable locations remain read-only. See [Explicit Link Insertion](LINK-INSERTION.md).
 - 0.6 may reuse the retrieval service for audits, but 0.3 does not calculate orphan or under-linked status.
 
 ## Known planning boundary

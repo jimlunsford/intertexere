@@ -302,6 +302,7 @@ final class AI_Enhancement {
 	private static function prepare_prompt( array $validated, array $deterministic, array $suggestion_map, array $context ) {
 		$title      = self::truncate_bytes( (string) $context['validated']['title'], 4096 );
 		$units      = array();
+		$prompt_units = array();
 		$unit_bytes = strlen( $title );
 		foreach ( array_slice( $context['text_units'], 0, self::MAX_CONTEXT_UNITS ) as $text_unit ) {
 			$remaining = self::MAX_DRAFT_CONTEXT_BYTES - $unit_bytes;
@@ -313,8 +314,14 @@ final class AI_Enhancement {
 				continue;
 			}
 			$key           = 'u' . ( count( $units ) + 1 );
+			$prompt_units[ $key ] = array(
+				'unit_key'  => $key,
+				'block_name'=> (string) $text_unit['block_name'],
+				'text'      => $text,
+			);
 			$units[ $key ] = array(
 				'unit_key'  => $key,
+				'client_id' => (string) $text_unit['client_id'],
 				'block_name'=> (string) $text_unit['block_name'],
 				'text'      => $text,
 			);
@@ -357,7 +364,7 @@ final class AI_Enhancement {
 			'prompt_version'   => self::PROMPT_VERSION,
 			'draft'            => array(
 				'title' => $title,
-				'units' => array_values( $units ),
+				'units' => array_values( $prompt_units ),
 			),
 			'candidates'       => $candidates,
 		);
@@ -508,6 +515,8 @@ final class AI_Enhancement {
 
 		return array(
 			'unit_key'  => $anchor['unit_key'],
+			'block_client_id' => (string) $units[ $anchor['unit_key'] ]['client_id'],
+			'block_name'=> (string) $units[ $anchor['unit_key'] ]['block_name'],
 			'exact_text'=> $anchor['exact_text'],
 			'occurrence'=> $anchor['occurrence'],
 			'start'     => self::length( substr( $text, 0, $offset ) ),

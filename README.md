@@ -29,7 +29,7 @@ Specific API usage is verified against the pinned WordPress 7.1 runtime and Core
 
 ## Development Status
 
-Milestones 0.1 through 0.4 are complete. Version 0.4.0 adds an optional, explicitly invoked, WordPress-native AI overlay while retaining deterministic 0.3 suggestions as the authority. Milestone 0.5, explicit link insertion, is fully planned and not implemented.
+Milestones 0.1 through 0.4 are complete. The milestone 0.5 implementation on `feature/0.5-link-insertion` has passed its full WordPress 7.1 acceptance matrix and is pending independent review before merge. Plugin version is 0.5.0 and schema remains version 2.
 
 The initial roadmap is:
 

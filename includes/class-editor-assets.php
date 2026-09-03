@@ -80,6 +80,12 @@ final class Editor_Assets {
 		return array(
 			'route'          => '/' . Editor_REST::NAMESPACE . Editor_REST::ROUTE,
 			'aiRoute'        => '/' . Editor_REST::NAMESPACE . Editor_REST::AI_ROUTE,
+			'insertionRoute' => '/' . Editor_REST::NAMESPACE . Editor_REST::INSERTION_ROUTE,
+			'insertion'      => array(
+				'contractVersion' => Insertion_Validation::CONTRACT_VERSION,
+				'maxDraftLinks'  => Insertion_Validation::MAX_DRAFT_LINKS,
+				'maxLinkBytes'   => Insertion_Validation::MAX_DRAFT_LINK_BYTES,
+			),
 			'ai'             => array(
 				'enabled'         => $ai['enabled'],
 				'available'       => $ai['available'],

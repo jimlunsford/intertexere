@@ -198,7 +198,7 @@ It is valid for AI to drop every candidate. The editor then reports that AI foun
 
 The existing sidebar remains the only suggestion surface. It preserves **Analyze draft**, **Refresh suggestions**, **View**, and session-only **Dismiss**. When site configuration and capability checks allow it, a completed current deterministic result adds **Enhance with AI**.
 
-There is no Insert Link action.
+The 0.4 AI service has no insertion action or mutation authority. The 0.5 sidebar may expose Insert Link for a kept candidate only after the same deterministic, server, and current-editor checks used without AI.
 
 Only one enhancement request is active in an editor session. A new deterministic analysis, draft edit, post navigation, second enhancement request, or sidebar teardown aborts the client request where possible and invalidates its ownership token. The server may be unable to cancel an in-flight provider call, so every late result is ignored unless its post identity, draft hash, analysis ID, generation identity, and request token remain current.
 
@@ -289,7 +289,7 @@ Playwright runs against the actual WordPress 7.1 iframe editor using a determini
 - navigation discards the prior response;
 - save and publish behavior remain ordinary;
 - enhancement never changes block or post content;
-- no Insert Link control exists.
+- the AI request itself cannot insert, authorize insertion, or cause Insert Link to run automatically.
 
 The CI matrix remains WordPress 7.1 with PHP 7.4, 8.1, and 8.3, PHP syntax validation, JavaScript lint and Jest, reproducible production build, and the WordPress 7.1 Playwright editor suite. CI contains no AI secrets and makes no paid external AI call.
 
@@ -301,9 +301,9 @@ If implementation reveals a need for persistent AI data or another table, work s
 
 ## Relationship to later milestones
 
-0.4 produces read-only, session-scoped advisory output. Its structured anchor evidence is designed so 0.5 can independently revalidate an explicitly approved location, but 0.4 performs no insertion and grants no mutation authority.
+0.4 produces read-only, session-scoped advisory output. In 0.5, its structured anchor evidence can be mapped back to server-held unit identity and independently revalidated after an explicit click, but the AI layer still performs no insertion and grants no mutation authority.
 
-The approved 0.5 plan does not expand the model prompt or expose target permalinks, block client IDs, tools, or Abilities to the model. An opaque AI unit key is mapped back to server-held deterministic location evidence, then the target and exact anchor pass the same insertion validation as a purely deterministic suggestion. AI keep, rank, explanation, and anchor output never authorize mutation. See [Explicit Link Insertion](LINK-INSERTION.md).
+The 0.5 implementation does not expand the model prompt or expose target permalinks, block client IDs, tools, or Abilities to the model. An opaque AI unit key is mapped back to server-held deterministic location evidence, then the target and exact anchor pass the same insertion validation as a purely deterministic suggestion. AI keep, rank, explanation, and anchor output never authorize mutation. See [Explicit Link Insertion](LINK-INSERTION.md).
 
 0.4 does not implement site audits, orphan or under-linked detection, broken-link repair, bulk workflows, persistent feedback, embeddings, vector search, or machine-learning preference storage. AI cannot select destinations outside the 0.3 deterministic candidate set.
 
