@@ -144,7 +144,7 @@ Acceptance direction:
 
 ## 0.5 Explicit Link Insertion
 
-Status: implementation acceptance complete on `feature/0.5-link-insertion`; independent review remains required before merge. See [Explicit Link Insertion](LINK-INSERTION.md) and [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
+Status: complete. See [Explicit Link Insertion](LINK-INSERTION.md) and [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
 
 Goal: allow the editor to approve a suggestion and insert a normal WordPress link safely.
 
@@ -184,20 +184,38 @@ Acceptance direction:
 
 ## 0.6 Site Link Audit
 
+Status: planned and not implemented. See [Site Link Audit](SITE-LINK-AUDIT.md) and [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md).
+
 Goal: extend the same index and graph into a maintenance workflow for existing content.
 
-Possible scope:
+Initial scope:
 
-- orphaned content
-- low inbound-link coverage
-- low outbound-link coverage
-- broken internal links
-- old posts that should link to newer posts
-- cornerstone-content opportunities
-- dismissed and excluded targets
-- filtered audit views
+- content-body orphans with zero qualifying inbound content sources
+- thin inbound coverage with exactly one qualifying inbound source
+- unresolved internal URLs and currently unavailable or ineligible resolved targets
+- repeated source-to-target link review opportunities
+- separately reported self-links
+- bounded noncanonical review opportunities only where schema 2 evidence is sufficient
+- native administration filters, keyset pagination, and View/Edit actions
 
-This milestone should reuse the established index, graph, and suggestion engine rather than create a separate analysis subsystem.
+Architecture direction:
+
+- reuse exact active index and graph generations without a separate analysis store
+- bind every request and cursor to both generation IDs and fail stale on cutover
+- bulk revalidate current WordPress source and target authority before display
+- compute results on demand with no audit table, option, transient, background run, or schema change
+- require `manage_intertexere` for site-wide structural data
+- use a server-rendered WordPress-native Tools screen
+- make no AI request and do not change editor scoring
+- provide no automatic or bulk repair
+
+Acceptance direction:
+
+- classifications are deterministic and accurately limited to literal links in eligible saved content
+- unresolved does not automatically mean broken, and valid noncanonical forms are review opportunities
+- self-links do not prevent orphan or thin-inbound findings
+- pagination and current revalidation are bounded and avoid N+1 queries
+- all audit use is read-only with respect to content, editor state, index, graph, settings, and schema
 
 ## Later Product Questions
 

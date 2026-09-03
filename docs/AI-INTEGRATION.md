@@ -305,6 +305,8 @@ If implementation reveals a need for persistent AI data or another table, work s
 
 The 0.5 implementation does not expand the model prompt or expose target permalinks, block client IDs, tools, or Abilities to the model. An opaque AI unit key is mapped back to server-held deterministic location evidence, then the target and exact anchor pass the same insertion validation as a purely deterministic suggestion. AI keep, rank, explanation, and anchor output never authorize mutation. See [Explicit Link Insertion](LINK-INSERTION.md).
 
+Milestone 0.6 auditing is planned as entirely local and deterministic. It sends no site graph, content, URL, title, or finding to an AI provider, requires no provider configuration, and does not change this prompt or the 0.4 authority model. See [Site Link Audit](SITE-LINK-AUDIT.md).
+
 0.4 does not implement site audits, orphan or under-linked detection, broken-link repair, bulk workflows, persistent feedback, embeddings, vector search, or machine-learning preference storage. AI cannot select destinations outside the 0.3 deterministic candidate set.
 
 ## Known limitations

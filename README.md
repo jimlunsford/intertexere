@@ -29,7 +29,7 @@ Specific API usage is verified against the pinned WordPress 7.1 runtime and Core
 
 ## Development Status
 
-Milestones 0.1 through 0.4 are complete. The milestone 0.5 implementation on `feature/0.5-link-insertion` has passed its full WordPress 7.1 acceptance matrix and is pending independent review before merge. Plugin version is 0.5.0 and schema remains version 2.
+Milestones 0.1 through 0.5 are complete. Milestone 0.6, Site Link Audit, is fully planned but not implemented. Plugin version is 0.5.0 and schema remains version 2.
 
 The initial roadmap is:
 
@@ -50,11 +50,13 @@ The initial roadmap is:
 - [Read-Only Editor Suggestions design](docs/EDITOR-SUGGESTIONS.md)
 - [WordPress-Native AI Integration](docs/AI-INTEGRATION.md)
 - [Explicit Link Insertion plan](docs/LINK-INSERTION.md)
+- [Site Link Audit plan](docs/SITE-LINK-AUDIT.md)
 - [0.1 Acceptance Criteria](docs/ACCEPTANCE-0.1.md)
 - [0.2 Acceptance Criteria](docs/ACCEPTANCE-0.2.md)
 - [0.3 Acceptance Criteria](docs/ACCEPTANCE-0.3.md)
 - [0.4 Acceptance Criteria](docs/ACCEPTANCE-0.4.md)
 - [0.5 Acceptance Criteria](docs/ACCEPTANCE-0.5.md)
+- [0.6 Acceptance Criteria](docs/ACCEPTANCE-0.6.md)
 
 ## Name
 
