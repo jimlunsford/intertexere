@@ -202,7 +202,9 @@ Architecture direction:
 
 - reuse exact active index and graph generations without a separate analysis store
 - bind every request and cursor to both generation IDs and fail stale on cutover
-- bulk revalidate current WordPress source and target authority before display
+- use schema 2 `ready` source rows, active-index membership, and current SQL-verifiable WordPress authority for structural counts
+- treat the runtime eligibility filter as materialized lifecycle evidence and require rebuild after out-of-band filter changes
+- fully revalidate only bounded displayed posts and fail stale on disagreement
 - compute results on demand with no audit table, option, transient, background run, or schema change
 - require `manage_intertexere` for site-wide structural data
 - use a server-rendered WordPress-native Tools screen
