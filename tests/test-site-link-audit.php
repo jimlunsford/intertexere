@@ -17,6 +17,12 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 	public function set_up(): void {
 		parent::set_up();
 		update_option( Settings::OPTION, Settings::defaults(), false );
+		delete_option( Indexer::LOCK_OPTION );
+		delete_option( Indexer::RERUN_OPTION );
+		delete_option( Link_Graph::LOCK_OPTION );
+		delete_option( Link_Graph::RERUN_OPTION );
+		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
+		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
 		Indexer::reset();
 		Link_Graph::reset();
 		$role = get_role( 'administrator' );
@@ -30,6 +36,12 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		remove_all_actions( 'intertexere_audit_before_final_derived_evidence' );
 		remove_all_actions( 'intertexere_audit_before_final_object_authority' );
 		remove_all_filters( 'intertexere_is_post_eligible' );
+		delete_option( Indexer::LOCK_OPTION );
+		delete_option( Indexer::RERUN_OPTION );
+		delete_option( Link_Graph::LOCK_OPTION );
+		delete_option( Link_Graph::RERUN_OPTION );
+		wp_clear_scheduled_hook( Indexer::REBUILD_HOOK );
+		wp_clear_scheduled_hook( Link_Graph::REBUILD_HOOK );
 		wp_set_current_user( 0 );
 		parent::tear_down();
 	}
@@ -616,9 +628,11 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertLessThan( 32 * MB_IN_BYTES, $memory_delta );
 		$ready = (int) $wpdb->get_var(
 			$wpdb->prepare(
-				'SELECT COUNT(*) FROM ' . Schema::graph_sources_table_name() . ' WHERE generation = %s AND source_state = %s',
+				'SELECT COUNT(*) FROM ' . Schema::graph_sources_table_name() . ' WHERE generation = %s AND source_state = %s AND source_post_id BETWEEN %d AND %d',
 				$generation,
-				'ready'
+				'ready',
+				min( $sources ),
+				max( $sources )
 			)
 		);
 		$this->assertSame( 2000, $ready, 'The edge-removal race must leave every source ready.' );

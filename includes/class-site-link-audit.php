@@ -656,7 +656,8 @@ final class Site_Link_Audit {
 			clean_post_cache( $id );
 		}
 		if ( function_exists( 'update_post_cache' ) ) {
-			update_post_cache( array_values( $posts ) );
+			$posts_to_cache = array_values( $posts );
+			update_post_cache( $posts_to_cache );
 		}
 
 		$snapshots = array();
