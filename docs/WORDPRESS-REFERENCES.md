@@ -107,6 +107,17 @@ In WordPress 7.1, `WP_HTML_Tag_Processor::get_attribute()` returns the value pro
 
 The 0.2 implementation also verifies query-style post IDs, current permalinks, relative-reference normalization, fragments, query preservation, and old-slug behavior in the WordPress 7.1 integration matrix. Old-slug resolution is accepted only for one exact non-hierarchical path candidate. Ambiguous or unsupported obsolete URLs remain unresolved.
 
+## 0.6 WordPress admin audit decision
+
+- Administration menus: https://developer.wordpress.org/reference/functions/add_management_page/
+- List tables and native admin tables: https://developer.wordpress.org/reference/classes/wp_list_table/
+- Post edit links: https://developer.wordpress.org/reference/functions/get_edit_post_link/
+- Post view links: https://developer.wordpress.org/reference/functions/get_permalink/
+
+The planned 0.6 audit is a server-rendered Tools screen protected by the existing `manage_intertexere` capability. Read-only filters and generation-bound keyset cursors use authenticated native admin GET requests. No custom REST or Abilities transport is required for the initial audit.
+
+`WP_List_Table` is marked private in Core documentation even though Core uses it extensively. Implementation must verify whether a simple native `widefat` table with explicit pagination is the more stable plugin contract before subclassing it. Either choice must preserve semantic table markup, escaped output, keyboard-accessible filters, and current per-post View/Edit capability checks.
+
 ## Development Rule
 
 Before implementation depends on a current WordPress API detail, re-check the current official documentation and actual API behavior. Intertexere should not preserve a stale assumption merely because it appears in an older planning document.

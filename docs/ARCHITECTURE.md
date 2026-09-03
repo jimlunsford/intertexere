@@ -6,7 +6,7 @@ This document defines the initial architecture for Intertexere.
 
 The repository is the source of truth for the plugin implementation. WordPress remains the source of truth for site content. Derived indexes and link-graph data may be rebuilt from WordPress at any time.
 
-Milestones 0.1 through 0.4 are complete. The milestone 0.5 implementation has passed its full acceptance matrix on the review branch and is pending independent review before merge.
+Milestones 0.1 through 0.5 are complete. Milestone 0.6 is planned and not implemented.
 
 ## Product Identity
 
@@ -155,9 +155,15 @@ Intertexere must not silently rewrite prose.
 - Background analysis must never change published or draft content.
 - Future automatic or bulk mutation requires a separate explicit product decision.
 
-The reviewed 0.5 plan adds a dedicated read-only insertion-validation service followed by one local Block Editor state update. The server reruns deterministic authority, resolves current target eligibility and permalink, rejects draft-wide duplicate target identity, and returns request-scoped evidence without writing content. The client then rechecks request ownership, post identity, block identity, direct RichText content, exact occurrence, and link boundaries before using the Core `core/link` format and `updateBlockAttributes()`.
+The implemented 0.5 architecture adds a dedicated read-only insertion-validation service followed by one local Block Editor state update. The server reruns deterministic authority, resolves current target eligibility and permalink, rejects draft-wide duplicate target identity, and returns request-scoped evidence without writing content. The client then rechecks request ownership, post identity, block identity, direct RichText content, exact occurrence, and link boundaries before using the Core `core/link` format and `updateBlockAttributes()`.
 
 The initial insertion allowlist is `core/paragraph`, `core/heading`, and `core/list-item`, each through its direct `content` attribute. Other analyzable locations remain read-only until their attribute paths and runtime behavior receive separate proof. The complete mutation and failure contract is in [Explicit Link Insertion](LINK-INSERTION.md), with completion requirements in [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
+
+## Site Link Audit Boundary
+
+Milestone 0.6 is planned as a deterministic, read-only administration view over saved WordPress content and the exact active index and graph generations. It reports only conditions the current schema can prove: content-body orphans, exactly-one-source thin inbound coverage, repeated source-to-target occurrences, self-links, unresolved internal URLs, and resolved targets that current WordPress state makes unavailable or ineligible.
+
+Each audit page binds both active generation IDs, uses stable keyset pagination, bulk revalidates current WordPress source and target authority, and fails stale if either generation cuts over before response. Results are calculated on demand and are not persisted. Schema remains version 2. The audit does not change editor scoring, invoke AI, crawl rendered pages, or offer repair controls. See [Site Link Audit](SITE-LINK-AUDIT.md) and [0.6 Acceptance Criteria](ACCEPTANCE-0.6.md).
 
 ## Privacy and External Requests
 
@@ -201,8 +207,8 @@ Intertexere follows normal WordPress security boundaries:
 3. Internal-link graph, complete in 0.2
 4. Read-only deterministic editor suggestions, complete in 0.3
 5. AI Client and Connectors integration, complete in 0.4
-6. Explicit one-click link insertion, implemented in 0.5 and pending independent review
-7. Site-level link audit and maintenance tools, planned for 0.6
+6. Explicit one-click link insertion, complete in 0.5
+7. Read-only site link audit, planned and not implemented in 0.6
 
 Each stage must remain usable and testable without pulling later behavior forward.
 

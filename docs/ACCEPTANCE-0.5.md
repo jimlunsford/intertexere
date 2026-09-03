@@ -2,11 +2,11 @@
 
 ## Status
 
-The implementation contract is proven on `feature/0.5-link-insertion`: the full WordPress 7.1 PHP, JavaScript, build, Playwright, and performance matrix passes. Independent production-diff review remains required before merge.
+The implementation contract was proven on `feature/0.5-link-insertion`: the full WordPress 7.1 PHP, JavaScript, build, Playwright, and performance matrix passed, independent production-diff review approved exact head `cd1a8948065c77dab498485ec829bbb3ab6549f8`, and PR #14 merged without tree differences.
 
 ## Completion rule
 
-0.5 is complete only when every criterion below is proven on `feature/0.5-link-insertion`, the production diff has received independent review, and the reviewed head passes the full continuous-integration matrix before merge.
+0.5 is complete. Every criterion below was proven on `feature/0.5-link-insertion`, the production diff received independent review, and the exact reviewed head passed the full continuous-integration matrix before merge.
 
 ## Product and authority
 

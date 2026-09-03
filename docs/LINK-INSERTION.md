@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the implemented architecture for milestone 0.5. Milestones 0.1 through 0.4 are complete. The 0.5 implementation has passed the full acceptance matrix on `feature/0.5-link-insertion` and remains subject to independent review before merge.
+This document defines the implemented architecture for milestone 0.5. Milestones 0.1 through 0.5 are complete following independent review and merge of PR #14.
 
 ## Goal
 
@@ -225,4 +225,4 @@ Schema remains version 2. 0.5 requires no migration, table, transient, option, i
 
 ## Independent review gate
 
-Implementation must use `feature/0.5-link-insertion`, include the complete three-layer test strategy, pass the full WordPress 7.1 and PHP matrix, receive full diff and independent review, and remain unmerged until that review covers the mutation path, exact occurrence behavior, duplicate identity, stale request ownership, security, no-server-mutation rule, undo behavior, and ordinary saved-link portability.
+Implementation used `feature/0.5-link-insertion`, passed the complete three-layer WordPress 7.1 and PHP matrix, and received full-diff independent review before merge. Milestone 0.6 consumes only normally saved graph state and does not expand insertion authority. See [Site Link Audit](SITE-LINK-AUDIT.md).

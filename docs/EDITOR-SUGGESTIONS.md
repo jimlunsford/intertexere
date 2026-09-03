@@ -246,7 +246,7 @@ The 0.3 analyzer exposes no mutation endpoint. In 0.5, its current exact locatio
 - 0.2 remains the only authoritative derived edge store. 0.3 reads active graph relationships and unsaved draft links without weakening rebuild concurrency.
 - 0.4 implements optional filtering, reranking, explanation, and exact-existing-anchor selection for the bounded deterministic candidate set through WordPress-native AI. Deterministic results remain authoritative and independently usable. See [WordPress-Native AI Integration](AI-INTEGRATION.md).
 - 0.5 implements explicit insertion only after current deterministic candidate, target, draft, exact occurrence, duplicate, and RichText boundary validation. Every 0.3 location remains a hint until revalidated. The mutation allowlist is paragraph, heading, and list-item direct `content` attributes; other analyzable locations remain read-only. See [Explicit Link Insertion](LINK-INSERTION.md).
-- 0.6 may reuse the retrieval service for audits, but 0.3 does not calculate orphan or under-linked status.
+- 0.6 plans a separate read-only admin audit over active index and graph evidence. It does not change 0.3 retrieval, scoring, ordering, exclusions, or suggestion authority. Audit findings do not silently boost editor candidates. See [Site Link Audit](SITE-LINK-AUDIT.md).
 
 ## Known planning boundary
 
