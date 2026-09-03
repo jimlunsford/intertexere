@@ -484,6 +484,19 @@ class Intertexere_Site_Link_Audit_Test extends WP_UnitTestCase {
 		$this->assertSame( 'stale', $this->page( 'orphans', $target )['status'] );
 	}
 
+	public function test_preexisting_target_permalink_mismatch_requires_derived_refresh(): void {
+		$target = $this->post( 'Preexisting permalink target' );
+		$source = $this->post( 'Preexisting permalink source', '<a href="/?p=' . $target . '&audit=old">Target</a>' );
+		$changed_permalink = static function ( string $permalink, WP_Post $post ) use ( $target ): string {
+			return $post->ID === $target ? add_query_arg( 'current-authority', 'changed', $permalink ) : $permalink;
+		};
+		add_filter( 'post_link', $changed_permalink, 10, 2 );
+		$result = $this->page( 'noncanonical', $source );
+		remove_filter( 'post_link', $changed_permalink, 10 );
+		$this->assertSame( 'stale', $result['status'] );
+		$this->assertTrue( $result['rebuild_required'] );
+	}
+
 	public function test_concurrent_new_finding_waits_for_refresh_and_nested_read_shares_no_state(): void {
 		$target = $this->post( 'Stable selected orphan' );
 		$new_target = 0;

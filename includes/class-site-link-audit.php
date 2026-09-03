@@ -716,6 +716,10 @@ final class Site_Link_Audit {
 				if ( empty( $objects[ $target_id ]['exists'] ) || empty( $objects[ $target_id ]['eligible'] ) ) {
 					return false;
 				}
+				if ( isset( $row['target_index_permalink'] )
+					&& (string) $objects[ $target_id ]['permalink'] !== (string) $row['target_index_permalink'] ) {
+					return false;
+				}
 			}
 		}
 		return true;
