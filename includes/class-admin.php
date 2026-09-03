@@ -408,7 +408,10 @@ final class Admin {
 				$target = $row['target_current'];
 				$target_title = '' !== (string) $target['title'] ? (string) $target['title'] : sprintf( __( 'Post %d', 'intertexere' ), $target_id );
 				$identity .= '<br><strong>' . esc_html__( 'Target:', 'intertexere' ) . '</strong> ' . esc_html( $target_title ) . ' <span class="description">(' . esc_html( sprintf( __( 'ID %d', 'intertexere' ), $target_id ) ) . ')</span>';
-				$identity .= '<br><span class="description">' . esc_html__( 'Current target:', 'intertexere' ) . ' <a href="' . esc_url( (string) $target['permalink'] ) . '">' . esc_html( (string) $target['permalink'] ) . '</a></span>';
+				$current_target = ! empty( $target['can_view'] )
+					? '<a href="' . esc_url( (string) $target['permalink'] ) . '">' . esc_html( (string) $target['permalink'] ) . '</a>'
+					: '<code>' . esc_html( (string) $target['permalink'] ) . '</code>';
+				$identity .= '<br><span class="description">' . esc_html__( 'Current target:', 'intertexere' ) . ' ' . $current_target . '</span>';
 				$target_actions = self::audit_post_actions( $target_id, $target_title, (string) $target['permalink'], ! empty( $target['can_view'] ), ! empty( $target['can_edit'] ), __( 'target', 'intertexere' ) );
 			} else {
 				$identity .= '<br><strong>' . esc_html__( 'Target:', 'intertexere' ) . '</strong> ' . esc_html( sprintf( __( 'Known post ID %d, currently unavailable', 'intertexere' ), $target_id ) );

@@ -577,7 +577,7 @@ final class Site_Link_Audit {
 
 		return 'e.target_post_id IS NOT NULL AND ti.post_id IS NOT NULL'
 			. " AND tp.ID = e.target_post_id AND tp.post_type IN ({$type_marks}) AND tp.post_status IN ({$status_marks}) AND tp.post_password = ''"
-			. ' AND e.normalized_url <> ti.permalink AND e.normalized_url LIKE \'%?%\''
+			. " AND e.normalized_url <> ti.permalink AND LOCATE('?', e.normalized_url) > 0"
 			. ' AND ' . $one_identity . ' AND (' . implode( ' OR ', $matches ) . ')';
 	}
 
