@@ -29,7 +29,7 @@ Specific API usage is verified against the pinned WordPress 7.1 runtime and Core
 
 ## Development Status
 
-Milestones 0.1 through 0.6 are implemented. Milestone 0.6 adds a deterministic, local, read-only Site Link Audit under WordPress Tools. Plugin version is 0.6.0 and schema remains version 2.
+Milestones 0.1 through 0.6 are implemented. The 0.6.1 maintenance patch adds bounded, insertion-aware suggestion locations, destination-specific anchor selection, and precise fail-safe read-only explanations. Plugin version is 0.6.1 and schema remains version 2.
 
 The initial roadmap is:
 
