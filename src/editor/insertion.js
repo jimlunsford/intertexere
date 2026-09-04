@@ -404,6 +404,9 @@ export function inspectSuggestionInsertion(
 		locations = [ suggestion.location ];
 	}
 	const failures = [];
+	const recordFailure = ( location, reason ) => {
+		failures.push( { location, reason } );
+	};
 
 	for ( const location of locations ) {
 		const clientId = location?.block_client_id;
@@ -417,12 +420,12 @@ export function inspectSuggestionInsertion(
 			exactText.length === 0 ||
 			! Number.isInteger( occurrence )
 		) {
-			failures.push( 'unsupported-block' );
+			recordFailure( location, 'unsupported-block' );
 			continue;
 		}
 		const block = getBlock( clientId );
 		if ( ! block || block.name !== blockName ) {
-			failures.push( 'changed' );
+			recordFailure( location, 'changed' );
 			continue;
 		}
 		const inspected = inspectInsertionRange(
@@ -432,7 +435,8 @@ export function inspectSuggestionInsertion(
 			suggestion?.target_permalink || ''
 		);
 		if ( inspected.status !== 'ready' ) {
-			failures.push(
+			recordFailure(
+				location,
 				{
 					unsupported: 'unsupported-block',
 					linked: 'already-linked',
@@ -471,11 +475,16 @@ export function inspectSuggestionInsertion(
 		'unsupported-block',
 		'unavailable',
 	];
+	const selectedFailure = priority
+		.map( ( reason ) =>
+			failures.find( ( failure ) => failure.reason === reason )
+		)
+		.find( Boolean );
 	return {
 		evidence: null,
-		location: locations[ 0 ] || null,
+		location: selectedFailure?.location || null,
 		reason:
-			priority.find( ( code ) => failures.includes( code ) ) ||
+			selectedFailure?.reason ||
 			suggestion?.location_status ||
 			'unavailable',
 		inspectionMs:

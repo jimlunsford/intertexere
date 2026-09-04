@@ -100,6 +100,83 @@ describe( 'analysis presentation', () => {
 		);
 	} );
 
+	test( 'renders the location paired with the selected read-only reason', () => {
+		const linked = {
+			anchor_text: 'linked phrase',
+			excerpt: 'Linked context belongs to this failure.',
+			occurrence: 0,
+		};
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ new Map() }
+				insertionAvailability={
+					new Map( [
+						[
+							14,
+							{
+								evidence: null,
+								location: linked,
+								reason: 'already-linked',
+							},
+						],
+					] )
+				}
+				insertionStates={ {} }
+				onInsert={ jest.fn() }
+			/>
+		);
+		expect( screen.getByText( '“linked phrase”' ) ).toBeVisible();
+		expect(
+			screen.getByText( 'Linked context belongs to this failure.' )
+		).toBeVisible();
+		expect( screen.getByText( /phrase is already linked/ ) ).toBeVisible();
+		expect( screen.queryByText( '“literal destination”' ) ).toBeNull();
+		expect(
+			screen.queryByText( 'A literal destination appears here.' )
+		).toBeNull();
+	} );
+
+	test( 'does not fall back to an unrelated phrase for an aggregate reason', () => {
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ new Map() }
+				insertionAvailability={
+					new Map( [
+						[
+							14,
+							{
+								evidence: null,
+								location: null,
+								reason: 'no-specific-phrase',
+							},
+						],
+					] )
+				}
+				insertionStates={ {} }
+				onInsert={ jest.fn() }
+			/>
+		);
+		expect(
+			screen.getByText( /No destination-specific phrase/ )
+		).toBeVisible();
+		expect( screen.queryByText( '“literal destination”' ) ).toBeNull();
+		expect(
+			screen.queryByText( 'A literal destination appears here.' )
+		).toBeNull();
+	} );
+
 	test( 'exposes validating and announced success states accessibly', () => {
 		const insertionEvidence = new Map( [
 			[ 14, { exact_text: 'literal destination' } ],

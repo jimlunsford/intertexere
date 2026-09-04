@@ -225,7 +225,7 @@ Acceptance direction:
 
 Status: maintenance patch.
 
-This patch improves the implemented editor workflow without introducing a new feature milestone. It separates semantic relevance units from insertion-supported locations, returns a bounded set of deterministic alternatives, avoids generic shared-title prefixes as sole fallback anchors, preserves exact draft text plus occurrence across PHP and JavaScript, and gives specific fail-safe read-only explanations. Candidate retrieval, relevance scoring, AI authority, the insertion allowlist, persistence, and schema version 2 remain unchanged.
+This patch improves the implemented editor workflow without introducing a new feature milestone. It separates semantic relevance units from insertion-supported locations, stratifies a maximum of eight deterministic alternatives so repeated early matches cannot starve later phrase tiers, avoids generic shared-title prefixes as sole fallback anchors, preserves exact draft text plus occurrence across PHP and JavaScript, and keeps each displayed read-only location paired with its own explanation. Candidate retrieval, relevance scoring, AI authority, the insertion allowlist, persistence, and schema version 2 remain unchanged.
 
 ## Later Product Questions
 

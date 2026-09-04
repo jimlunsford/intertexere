@@ -311,7 +311,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertSame( $response['analysis_id'], $location['analysis_id'] );
 		$this->assertSame( 64, strlen( $location['block_text_hash'] ) );
 		$this->assertSame( 2, $response['contract_version'] );
-		$this->assertSame( 2, $response['algorithm_version'] );
+		$this->assertSame( 3, $response['algorithm_version'] );
 		$this->assertCount( 2, $response['suggestions'][0]['location_candidates'] );
 	}
 
@@ -379,6 +379,41 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertNull( $power['location'] );
 		$this->assertSame( 'no-specific-phrase', $power['location_status'] );
 		$this->assertNotContains( 'Discipline Dispatch', array_column( $power['location_candidates'], 'anchor_text' ) );
+	}
+
+	public function test_repeated_full_title_cannot_starve_a_later_specific_suffix(): void {
+		$target = $this->create_target( 'Discipline Dispatch: Keep Moving' );
+		$links  = array();
+		for ( $index = 0; $index < 8; ++$index ) {
+			$links[] = '<a href="https://outside.example/unsafe-' . $index . '/">Discipline Dispatch: Keep Moving</a>';
+		}
+		$payload = $this->payload(
+			0,
+			'Discipline Dispatch: Keep Moving',
+			array(
+				$this->unit( 'early-linked', 'core/paragraph', '<!-- wp:paragraph --><p>' . implode( ' ', $links ) . '</p><!-- /wp:paragraph -->' ),
+				$this->unit( 'later-safe', 'core/paragraph', '<!-- wp:paragraph --><p>We keep moving after every earlier location fails.</p><!-- /wp:paragraph -->' ),
+			)
+		);
+		$first  = Editor_Suggestions::analyze( $payload );
+		$second = Editor_Suggestions::analyze( $payload );
+		$suggestion = array_column( $first['suggestions'], null, 'target_post_id' )[ $target ];
+		$locations  = $suggestion['location_candidates'];
+
+		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_LOCATION_CANDIDATES, count( $locations ) );
+		$this->assertSame( $locations, array_column( $second['suggestions'], null, 'target_post_id' )[ $target ]['location_candidates'] );
+		$this->assertContains( 'later-safe', array_column( $locations, 'block_client_id' ) );
+		$later = array_values(
+			array_filter(
+				$locations,
+				static function ( array $location ): bool {
+					return 'later-safe' === $location['block_client_id'];
+				}
+			)
+		);
+		$this->assertCount( 1, $later );
+		$this->assertSame( 'keep moving', $later[0]['anchor_text'] );
+		$this->assertSame( 0, $later[0]['occurrence'] );
 	}
 
 	public function test_shared_prefix_detection_is_generic_and_not_a_series_name(): void {

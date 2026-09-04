@@ -223,6 +223,8 @@ Do not leave architecture or product rules knowingly stale after a deliberate ch
 
 ## 16. Commit Messages
 
+The deterministic editor algorithm version must change whenever bounded location selection changes, even when response contract version 2 remains structurally compatible. Current clients must reject responses whose localized algorithm version does not match the response.
+
 Use short, descriptive commit messages that state what changed.
 
 Examples:

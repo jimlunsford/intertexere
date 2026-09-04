@@ -9,7 +9,7 @@ namespace Intertexere;
 
 final class Editor_Suggestions {
 	public const CONTRACT_VERSION = 2;
-	public const ALGORITHM_VERSION = 2;
+	public const ALGORITHM_VERSION = 3;
 	public const MAX_PAYLOAD_BYTES = 262144;
 	public const MAX_UNITS = 500;
 	public const MAX_UNIT_BYTES = 16384;
@@ -18,6 +18,8 @@ final class Editor_Suggestions {
 	public const MAX_CANDIDATES = 100;
 	public const MAX_RESULTS = 10;
 	public const MAX_LOCATION_CANDIDATES = 8;
+	private const MAX_LOCATION_PHRASES = 8;
+	private const LOCATION_RESERVOIR_SIDE = 4;
 	public const MIN_SCORE = 25;
 	private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS;
 
@@ -954,10 +956,12 @@ final class Editor_Suggestions {
 			}
 		}
 
-		$candidates        = array();
+		$buckets           = array();
 		$seen              = array();
 		$unsupported_match = false;
-		foreach ( $phrases as $phrase ) {
+		foreach ( array_values( $phrases ) as $phrase_index => $phrase ) {
+			$head = array();
+			$tail = array();
 			foreach ( $text_units as $unit ) {
 				$search_text = ! empty( $unit['insertable'] ) && is_string( $unit['insertion_text'] ) ? $unit['insertion_text'] : $unit['text'];
 				$matches = self::case_insensitive_occurrences( $search_text, $phrase );
@@ -975,13 +979,23 @@ final class Editor_Suggestions {
 						continue;
 					}
 					$seen[ $identity ] = true;
-					$candidates[] = self::location_value( $unit, $match['text'], $match['offset'], $match['occurrence'], $draft_hash, $analysis_id );
-					if ( count( $candidates ) >= self::MAX_LOCATION_CANDIDATES ) {
-						break 3;
+					$candidate = self::location_value( $unit, $match['text'], $match['offset'], $match['occurrence'], $draft_hash, $analysis_id );
+					if ( count( $head ) < self::LOCATION_RESERVOIR_SIDE ) {
+						$head[] = $candidate;
+					} else {
+						$tail[] = $candidate;
+						if ( count( $tail ) > self::LOCATION_RESERVOIR_SIDE ) {
+							array_shift( $tail );
+						}
 					}
 				}
 			}
+			$bucket = array_merge( $head, $tail );
+			if ( ! empty( $bucket ) ) {
+				$buckets[ $phrase_index ] = $bucket;
+			}
 		}
+		$candidates = self::select_bounded_locations( $buckets );
 
 		return array(
 			'candidates' => $candidates,
@@ -990,11 +1004,68 @@ final class Editor_Suggestions {
 	}
 
 	private static function add_location_phrase( array &$phrases, string $phrase ): void {
+		if ( count( $phrases ) >= self::MAX_LOCATION_PHRASES ) {
+			return;
+		}
 		$phrase = trim( $phrase );
 		$key    = self::lower( $phrase );
 		if ( '' !== $key && ! isset( $phrases[ $key ] ) ) {
 			$phrases[ $key ] = $phrase;
 		}
+	}
+
+	/**
+	 * Select at most eight locations without allowing one repeated phrase to
+	 * exhaust the response before later high-priority phrase tiers are sampled.
+	 * Each bucket contains its first and last bounded draft-order matches.
+	 *
+	 * @param array<int,array<int,array<string,mixed>>> $buckets Phrase-indexed locations.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function select_bounded_locations( array $buckets ): array {
+		$selected = array();
+		$seen     = array();
+		$keys     = array_keys( $buckets );
+		$add      = static function ( int $phrase_index, int $candidate_index ) use ( &$selected, &$seen, $buckets ): void {
+			if ( count( $selected ) >= self::MAX_LOCATION_CANDIDATES || ! isset( $buckets[ $phrase_index ][ $candidate_index ] ) ) {
+				return;
+			}
+			$key = $phrase_index . ':' . $candidate_index;
+			if ( isset( $seen[ $key ] ) ) {
+				return;
+			}
+			$seen[ $key ] = true;
+			$selected[] = array(
+				'phrase_index'    => $phrase_index,
+				'candidate_index' => $candidate_index,
+				'location'        => $buckets[ $phrase_index ][ $candidate_index ],
+			);
+		};
+
+		foreach ( $keys as $key_index => $phrase_index ) {
+			$representative = 0 === $key_index ? 0 : count( $buckets[ $phrase_index ] ) - 1;
+			$add( $phrase_index, $representative );
+		}
+		foreach ( $keys as $phrase_index ) {
+			$add( $phrase_index, 0 );
+			$add( $phrase_index, count( $buckets[ $phrase_index ] ) - 1 );
+		}
+		foreach ( $keys as $phrase_index ) {
+			foreach ( array_keys( $buckets[ $phrase_index ] ) as $candidate_index ) {
+				$add( $phrase_index, $candidate_index );
+			}
+		}
+
+		usort(
+			$selected,
+			static function ( array $left, array $right ): int {
+				return $left['phrase_index'] !== $right['phrase_index']
+					? $left['phrase_index'] <=> $right['phrase_index']
+					: $left['candidate_index'] <=> $right['candidate_index'];
+			}
+		);
+
+		return array_values( array_column( $selected, 'location' ) );
 	}
 
 	/** @return string[] */

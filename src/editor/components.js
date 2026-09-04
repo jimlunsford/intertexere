@@ -50,7 +50,9 @@ export function SuggestionCard( {
 	insertionState,
 	onInsert,
 } ) {
-	const location = insertionAvailability?.location || suggestion.location;
+	const location = insertionAvailability
+		? insertionAvailability.location
+		: suggestion.location;
 	return (
 		<div className="intertexere-suggestion-card">
 			<h3>{ suggestion.target_title }</h3>

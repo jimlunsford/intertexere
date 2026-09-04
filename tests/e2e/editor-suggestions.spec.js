@@ -823,7 +823,13 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 				} )
 			);
 		}
+		const earlyUnsafeMatches = Array.from(
+			{ length: 8 },
+			( unused, index ) =>
+				`<a href="https://outside.example/full-title-${ index }/">Discipline Dispatch: Keep Moving</a>`
+		).join( ' ' );
 		const sourceContent =
+			`<!-- wp:paragraph --><p>${ earlyUnsafeMatches }</p><!-- /wp:paragraph -->` +
 			'<!-- wp:paragraph --><p><a href="https://outside.example/linked/">keep moving</a> after a Discipline Dispatch introduction.</p><!-- /wp:paragraph -->' +
 			'<!-- wp:pullquote --><figure class="wp-block-pullquote"><blockquote><p>keep moving in an unsupported block.</p></blockquote></figure><!-- /wp:pullquote -->' +
 			'<!-- wp:paragraph --><p>We keep moving when the first location is unsafe.</p><!-- /wp:paragraph -->';
@@ -895,10 +901,18 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 				} )
 			);
 		}, inserted );
-		expect( links ).toEqual( [
-			{ href: 'https://outside.example/linked/', text: 'keep moving' },
-			{ href: targets[ 0 ].link, text: 'keep moving' },
-		] );
+		expect(
+			links.filter(
+				( link ) => link.text === 'Discipline Dispatch: Keep Moving'
+			)
+		).toHaveLength( 8 );
+		expect(
+			links.filter( ( link ) => link.href === targets[ 0 ].link )
+		).toEqual( [ { href: targets[ 0 ].link, text: 'keep moving' } ] );
+		expect( links ).toContainEqual( {
+			href: 'https://outside.example/linked/',
+			text: 'keep moving',
+		} );
 		expect(
 			await page.evaluate( () =>
 				window.wp.data.select( 'core/editor' ).isEditedPostDirty()

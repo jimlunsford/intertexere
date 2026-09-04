@@ -56,7 +56,9 @@ Pullquote, verse, preformatted, table cells, image or gallery captions, and audi
 
 Expanding this allowlist requires runtime proof, unit and browser coverage for the attribute path, and an updated reviewed contract.
 
-The 0.6.1 maintenance selector keeps analyzable and insertable text separate. Unsupported units may contribute to deterministic relevance but cannot displace a later supported location. For each suggestion, the server returns at most eight ordered deterministic candidates. The client evaluates them against current RichText and uses the first candidate that passes all existing 0.5 checks. An unsupported, linked, overlapping, replacement-crossing, changed, or unmappable candidate does not prevent inspection of the next bounded candidate.
+The 0.6.1 maintenance selector keeps analyzable and insertable text separate. Unsupported units may contribute to deterministic relevance but cannot displace a later supported location. For each suggestion, the server returns at most eight ordered deterministic candidates, with one slot first reserved for every nonempty bounded phrase tier and with first-and-last occurrence reservoirs retaining later specific matches. The client evaluates them against current RichText and uses the first candidate that passes all existing 0.5 checks. An unsupported, linked, overlapping, replacement-crossing, changed, or unmappable candidate does not prevent inspection of the next bounded candidate.
+
+Client inspection records each failed location together with its own reason. If every candidate fails, the UI selects one complete location-reason pair deterministically. An aggregate explanation with no exact candidate displays no unrelated proposed phrase or draft context.
 
 ## Insertion authority model
 

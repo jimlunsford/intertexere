@@ -61,12 +61,12 @@ describe( 'asynchronous request state', () => {
 		const expected = {
 			draftHash: 'draft',
 			contractVersion: 2,
-			algorithmVersion: 2,
+			algorithmVersion: 3,
 		};
 		const response = {
 			draft_hash: 'draft',
 			contract_version: 2,
-			algorithm_version: 2,
+			algorithm_version: 3,
 			suggestions: [],
 		};
 		expect( isCurrentAnalysisResponse( response, expected ) ).toBe( true );

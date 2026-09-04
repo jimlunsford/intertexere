@@ -147,7 +147,7 @@ Semantic analysis and insertion-location selection are separate. All included te
 
 The location finder searches deterministically in this order: exact full destination title, destination-specific title suffix, destination-specific heading phrase, then another sufficiently specific contiguous phrase supported by the indexed title or headings. Common leading terms shared by the source or other bounded destination titles are excluded from fallback phrases. This general rule prevents a series or category prefix from becoming the sole anchor for several unrelated destinations and does not contain site-specific series names.
 
-The finder continues through supported units and repeated occurrences until it has found eight candidates or exhausted its bounded alternatives. Editor order and zero-based occurrence order are stable tie breakers. It does not manufacture words or change the deterministic relevance score. A suggestion with no destination-specific supported match remains useful but read-only, with `location_status` distinguishing no specific phrase from a match found only in an unsupported block.
+The finder evaluates at most eight ordered phrase tiers across the already bounded draft units. For each phrase tier it retains a bounded first-and-last occurrence reservoir, then reserves one response slot for every nonempty phrase tier. The full-title tier starts with its earliest match, while later destination-specific tiers retain their latest bounded match so an early repeated occurrence class cannot hide a later safe occurrence. Remaining capacity is filled deterministically from retained first and last matches and then editor order. One repeated full-title phrase therefore cannot consume all eight response locations before a later destination-specific suffix or heading tier is represented. The response still contains no more than eight candidates, and the client remains final RichText authority. It does not manufacture words or change the deterministic relevance score. A suggestion with no destination-specific supported match remains useful but read-only, with `location_status` distinguishing no specific phrase from a match found only in an unsupported block.
 
 Block client IDs are transient editor locators, not durable content identity. PHP start and length values are diagnostics, not RichText indices. Exact case-sensitive draft text plus zero-based occurrence is the cross-runtime identity. The 0.5 insertion layer evaluates the ordered candidates against current RichText, selects the first currently safe range, reparses the current block, verifies canonical draft and direct-content identities, re-resolves the target, and confirms the selected exact text plus occurrence before any mutation. The 0.3 analysis service itself remains read-only.
 
@@ -158,7 +158,7 @@ The read-only analysis response has this stable shape, with JSON schemas enforce
 ```json
 {
   "contract_version": 2,
-  "algorithm_version": 2,
+  "algorithm_version": 3,
   "analysis_id": "sha256-value",
   "draft_hash": "sha256-value",
   "index_generation": "generation-id",
@@ -212,7 +212,7 @@ The read-only analysis response has this stable shape, with JSON schemas enforce
 
 Current title, permalink, post type, publication state, and eligibility are resolved from WordPress when the response is built. They are not persisted as a second canonical suggestion record. `already_linked` is false for every returned card because already-linked targets are hard exclusions; the field makes the contract explicit and supports defensive UI behavior. The response reports their aggregate exclusion count without exposing a separate recommendation history.
 
-Contract version 2 adds bounded `location_candidates` and `location_status`. `location` remains the first ordered candidate for compatibility with the existing advisory AI context and is null when the candidate list is empty. Algorithm version 2 binds draft hashes, analysis IDs, and session caches to the insertion-aware selector. The client rejects a response with a different contract or algorithm version.
+Contract version 2 adds bounded `location_candidates` and `location_status`. `location` remains the first ordered candidate for compatibility with the existing advisory AI context and is null when the candidate list is empty. Algorithm version 3 binds draft hashes, analysis IDs, and session caches to the stratified insertion-aware selector. The client rejects a response with a different contract or algorithm version.
 
 ## Server boundary and security
 

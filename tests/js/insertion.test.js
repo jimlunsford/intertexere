@@ -517,6 +517,82 @@ describe( 'bounded insertion evidence', () => {
 		expect( elapsed ).toBeLessThan( 100 );
 	} );
 
+	test( 'reaches a later specific suffix after early linked full-title candidates', () => {
+		const candidates = Array.from( { length: 7 }, ( unused, index ) => ( {
+			...suggestion.location,
+			block_client_id: `full-title-${ index }`,
+			anchor_text: 'Discipline Dispatch: Keep Moving',
+			occurrence: index,
+		} ) );
+		const safe = {
+			...suggestion.location,
+			block_client_id: 'later-safe',
+			anchor_text: 'keep moving',
+			occurrence: 0,
+		};
+		candidates.push( safe );
+		const availability = inspectSuggestionInsertion(
+			{ ...suggestion, location_candidates: candidates },
+			null,
+			( clientId ) =>
+				clientId === 'later-safe'
+					? block(
+							'core/paragraph',
+							'We keep moving after the unsafe matches.',
+							clientId
+					  )
+					: block(
+							'core/paragraph',
+							'<a href="https://example.test/other/">Discipline Dispatch: Keep Moving</a>',
+							clientId
+					  )
+		);
+		expect( availability.location ).toBe( safe );
+		expect( availability.evidence ).toMatchObject( {
+			block_client_id: 'later-safe',
+			exact_text: 'keep moving',
+			occurrence: 0,
+		} );
+	} );
+
+	test( 'keeps a deterministic read-only reason paired with its failed location', () => {
+		const changed = {
+			...suggestion.location,
+			block_client_id: 'changed',
+			anchor_text: 'Changed phrase',
+			excerpt: 'Changed context.',
+		};
+		const linked = {
+			...suggestion.location,
+			block_client_id: 'linked',
+			anchor_text: 'Linked phrase',
+			excerpt: 'Linked context.',
+		};
+		const inspect = () =>
+			inspectSuggestionInsertion(
+				{
+					...suggestion,
+					location_candidates: [ changed, linked ],
+				},
+				null,
+				( clientId ) =>
+					clientId === 'linked'
+						? block(
+								'core/paragraph',
+								'<a href="https://example.test/other/">Linked phrase</a>',
+								clientId
+						  )
+						: block( 'core/paragraph', 'Changed copy.', clientId )
+			);
+		const first = inspect();
+		const second = inspect();
+		expect( first.evidence ).toBeNull();
+		expect( first.reason ).toBe( 'already-linked' );
+		expect( first.location ).toBe( linked );
+		expect( second.reason ).toBe( first.reason );
+		expect( second.location ).toBe( linked );
+	} );
+
 	test.each( [
 		[
 			'<a href="https://example.test/other/">Exact</a>',
