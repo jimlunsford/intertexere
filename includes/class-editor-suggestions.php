@@ -163,7 +163,7 @@ final class Editor_Suggestions {
 
 			$suggestions[] = array(
 				'target_post_id'   => $candidate_id,
-				'target_title'     => get_the_title( $target ),
+				'target_title'     => self::target_title_text( $target ),
 				'target_permalink' => (string) get_permalink( $target ),
 				'target_post_type' => (string) $target->post_type,
 				'score'            => $scored['score'],
@@ -916,7 +916,7 @@ final class Editor_Suggestions {
 	 * @return array<string, mixed>|null
 	 */
 	private static function find_locations( \WP_Post $target, array $record, array $text_units, string $draft_hash, string $analysis_id, array $title_context ): array {
-		$title         = trim( get_the_title( $target ) );
+		$title         = self::target_title_text( $target );
 		$generic_terms = self::shared_leading_title_terms( $title, $title_context );
 		$phrases       = array();
 		self::add_location_phrase( $phrases, $title );
@@ -1229,6 +1229,16 @@ final class Editor_Suggestions {
 		return false !== strpos( ' ' . $haystack . ' ', ' ' . $needle . ' ' );
 	}
 
+	private static function target_title_text( \WP_Post $target ): string {
+		return trim(
+			html_entity_decode(
+				wp_strip_all_tags( (string) get_the_title( $target ), false ),
+				ENT_QUOTES | ENT_HTML5,
+				get_bloginfo( 'charset' ) ?: 'UTF-8'
+			)
+		);
+	}
+
 	private static function valid_utf8( string $value ): bool {
 		return 1 === preg_match( '//u', $value );
 	}
@@ -1246,14 +1256,6 @@ final class Editor_Suggestions {
 			return null === $length ? mb_substr( $value, $start, null, 'UTF-8' ) : mb_substr( $value, $start, $length, 'UTF-8' );
 		}
 		return null === $length ? substr( $value, $start ) : substr( $value, $start, $length );
-	}
-
-	/** @return int|false */
-	private static function string_position( string $haystack, string $needle ) {
-		if ( '' === $needle ) {
-			return false;
-		}
-		return function_exists( 'mb_stripos' ) ? mb_stripos( $haystack, $needle, 0, 'UTF-8' ) : stripos( $haystack, $needle );
 	}
 
 	private static function byte_to_character_offset( string $text, int $byte_offset ): int {

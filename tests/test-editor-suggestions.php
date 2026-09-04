@@ -466,6 +466,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
 		$entity_response = Editor_Suggestions::analyze( $payload );
 		$by_id = array_column( $entity_response['suggestions'], null, 'target_post_id' );
+		$this->assertSame( 'Café & Resolve', $by_id[ $entity_target ]['target_title'] );
 		$this->assertSame( 'café & resolve', $by_id[ $entity_target ]['location']['anchor_text'] );
 		$this->assertSame( 'keep   moving', $by_id[ $space_target ]['location']['anchor_text'] );
 		$this->assertStringContainsString( "moving\nagain", $by_id[ $space_target ]['location']['excerpt'] );
