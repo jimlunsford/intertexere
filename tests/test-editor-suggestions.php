@@ -409,16 +409,20 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 	}
 
 	public function test_specific_match_only_in_an_unsupported_block_reports_read_only_state(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
 		$target = $this->create_target( 'Unsupported Exact Destination' );
-		$response = Editor_Suggestions::analyze(
-			$this->payload(
-				0,
-				'Unrelated source title',
-				array(
-					$this->unit( 'unsupported', 'core/pullquote', '<!-- wp:pullquote --><figure><blockquote><p>Unsupported Exact Destination appears only here.</p></blockquote></figure><!-- /wp:pullquote -->' ),
-				)
+		wp_set_post_categories( $target, array( $category_a, $category_b ) );
+		Indexer::refresh_post( $target );
+		$payload = $this->payload(
+			0,
+			'Unrelated source title',
+			array(
+				$this->unit( 'unsupported', 'core/pullquote', '<!-- wp:pullquote --><figure><blockquote><p>Unsupported Exact Destination appears only here.</p></blockquote></figure><!-- /wp:pullquote -->' ),
 			)
 		);
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
+		$response = Editor_Suggestions::analyze( $payload );
 
 		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
 		$this->assertNull( $response['suggestions'][0]['location'] );
@@ -445,7 +449,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 	public function test_exact_mapping_preserves_case_entities_unicode_formatting_whitespace_and_line_breaks(): void {
 		$category_a = self::factory()->category->create();
 		$category_b = self::factory()->category->create();
-		$entity_target = $this->create_target( 'Café & Resolve 🙂' );
+		$entity_target = $this->create_target( 'Café & Resolve' );
 		$space_target  = $this->create_target( 'Keep Moving' );
 		wp_set_post_categories( $entity_target, array( $category_a, $category_b ) );
 		wp_set_post_categories( $space_target, array( $category_a, $category_b ) );
@@ -455,16 +459,20 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 			0,
 			'Café Resolve Keep Moving',
 			array(
-				$this->unit( 'entity', 'core/paragraph', '<!-- wp:paragraph --><p><strong>café &amp; resolve 🙂</strong> with punctuation.</p><!-- /wp:paragraph -->' ),
+				$this->unit( 'entity', 'core/paragraph', '<!-- wp:paragraph --><p><strong>café &amp; resolve</strong> 🙂 with punctuation.</p><!-- /wp:paragraph -->' ),
 				$this->unit( 'spaces', 'core/paragraph', '<!-- wp:paragraph --><p><em>keep</em>   moving<br>again with stable text.</p><!-- /wp:paragraph -->' ),
 			)
 		);
 		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
 		$entity_response = Editor_Suggestions::analyze( $payload );
 		$by_id = array_column( $entity_response['suggestions'], null, 'target_post_id' );
-		$this->assertSame( 'café & resolve 🙂', $by_id[ $entity_target ]['location']['anchor_text'] );
+		$this->assertSame( 'café & resolve', $by_id[ $entity_target ]['location']['anchor_text'] );
 		$this->assertSame( 'keep   moving', $by_id[ $space_target ]['location']['anchor_text'] );
 		$this->assertStringContainsString( "moving\nagain", $by_id[ $space_target ]['location']['excerpt'] );
+		$this->assertSame(
+			"café & resolve 🙂  keep\nmoving",
+			Editor_Suggestions::insertion_text_mapping( 'core/paragraph', '<p><strong>café &amp; resolve</strong> 🙂  keep<br>moving</p>' )['text']
+		);
 	}
 
 	public function test_location_candidates_are_deterministic_and_hard_bounded(): void {
