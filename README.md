@@ -4,7 +4,7 @@
 
 Intertexere helps WordPress editors discover useful internal-link opportunities while writing, understand the site's existing internal-link graph, and insert approved links without surrendering editorial control.
 
-The project is currently in private initial development.
+Intertexere is an open-source WordPress plugin under active development.
 
 ## Core Principles
 
@@ -61,3 +61,7 @@ The initial roadmap is:
 ## Name
 
 *Intertexere* is Latin for interweaving or intertwining, reflecting the plugin's purpose of connecting related content across a WordPress site.
+
+## License
+
+Intertexere is licensed under the GNU Affero General Public License version 3 or later (`AGPL-3.0-or-later`). See [LICENSE](LICENSE) for the complete license text.

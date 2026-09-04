@@ -2,7 +2,7 @@
 
 ## Status
 
-Intertexere is in private initial development.
+Intertexere is an open-source WordPress plugin under active development.
 
 This roadmap is intentionally milestone-oriented. Scope should change when real testing shows that a different order produces a stronger product.
 
