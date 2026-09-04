@@ -622,7 +622,7 @@ final class Editor_Suggestions {
 
 		return array(
 			'content_html' => $content_html,
-			'text'         => html_entity_decode( wp_strip_all_tags( $line_mapped, true ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ),
+			'text'         => html_entity_decode( wp_strip_all_tags( $line_mapped, false ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ),
 		);
 	}
 

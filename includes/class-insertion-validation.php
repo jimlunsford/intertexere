@@ -455,7 +455,7 @@ final class Insertion_Validation {
 
 	private static function plain_text( string $html ): string {
 		$line_mapped = preg_replace( '#<br\s*/?>#i', "\n", $html );
-		return html_entity_decode( wp_strip_all_tags( is_string( $line_mapped ) ? $line_mapped : $html, true ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+		return html_entity_decode( wp_strip_all_tags( is_string( $line_mapped ) ? $line_mapped : $html, false ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
 	}
 
 	/** @return int|false */

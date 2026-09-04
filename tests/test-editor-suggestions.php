@@ -408,9 +408,49 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertSame( 'safe alternate phrase', $response['suggestions'][0]['location']['anchor_text'] );
 	}
 
+	public function test_specific_match_only_in_an_unsupported_block_reports_read_only_state(): void {
+		$target = $this->create_target( 'Unsupported Exact Destination' );
+		$response = Editor_Suggestions::analyze(
+			$this->payload(
+				0,
+				'Unrelated source title',
+				array(
+					$this->unit( 'unsupported', 'core/pullquote', '<!-- wp:pullquote --><figure><blockquote><p>Unsupported Exact Destination appears only here.</p></blockquote></figure><!-- /wp:pullquote -->' ),
+				)
+			)
+		);
+
+		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
+		$this->assertNull( $response['suggestions'][0]['location'] );
+		$this->assertSame( 'unsupported-block', $response['suggestions'][0]['location_status'] );
+	}
+
+	public function test_candidate_specific_indexed_heading_phrase_is_insertable(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
+		$target = $this->create_target(
+			'Field Notes: Landing Safely',
+			'<!-- wp:heading --><h2>Repair the Runway</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Destination detail.</p><!-- /wp:paragraph -->'
+		);
+		wp_set_post_categories( $target, array( $category_a, $category_b ) );
+		Indexer::refresh_post( $target );
+		$payload = $this->payload( 0, 'Source without title terms', array( $this->paragraph( 'We repair the runway before the next difficult landing.' ) ) );
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
+		$response = Editor_Suggestions::analyze( $payload );
+
+		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
+		$this->assertSame( 'repair the runway', $response['suggestions'][0]['location']['anchor_text'] );
+	}
+
 	public function test_exact_mapping_preserves_case_entities_unicode_formatting_whitespace_and_line_breaks(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
 		$entity_target = $this->create_target( 'Café & Resolve 🙂' );
 		$space_target  = $this->create_target( 'Keep Moving' );
+		wp_set_post_categories( $entity_target, array( $category_a, $category_b ) );
+		wp_set_post_categories( $space_target, array( $category_a, $category_b ) );
+		Indexer::refresh_post( $entity_target );
+		Indexer::refresh_post( $space_target );
 		$payload = $this->payload(
 			0,
 			'Café Resolve Keep Moving',
@@ -419,6 +459,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 				$this->unit( 'spaces', 'core/paragraph', '<!-- wp:paragraph --><p><em>keep</em>   moving<br>again with stable text.</p><!-- /wp:paragraph -->' ),
 			)
 		);
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
 		$entity_response = Editor_Suggestions::analyze( $payload );
 		$by_id = array_column( $entity_response['suggestions'], null, 'target_post_id' );
 		$this->assertSame( 'café & resolve 🙂', $by_id[ $entity_target ]['location']['anchor_text'] );

@@ -296,7 +296,7 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertSame( 1, $result['anchor']['occurrence'] );
 
 		$request = $this->request_payload();
-		$request['anchor']['exact_text'] = 'Alpha';
+		$request['anchor']['exact_text'] = 'and Alpha';
 		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
 	}
 
