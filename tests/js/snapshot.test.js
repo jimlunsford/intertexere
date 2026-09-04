@@ -143,7 +143,7 @@ describe( 'editor snapshot', () => {
 			'units',
 		] );
 		expect( clientHashInput( result ) ).toContain(
-			'"algorithm_version":1'
+			'"algorithm_version":2'
 		);
 	} );
 

@@ -221,6 +221,12 @@ Acceptance direction:
 - pagination and current revalidation are bounded and avoid N+1 queries
 - all audit use is read-only with respect to content, editor state, index, graph, settings, and schema
 
+## 0.6.1 Insertable Suggestion Location Maintenance
+
+Status: maintenance patch.
+
+This patch improves the implemented editor workflow without introducing a new feature milestone. It separates semantic relevance units from insertion-supported locations, returns a bounded set of deterministic alternatives, avoids generic shared-title prefixes as sole fallback anchors, preserves exact draft text plus occurrence across PHP and JavaScript, and gives specific fail-safe read-only explanations. Candidate retrieval, relevance scoring, AI authority, the insertion allowlist, persistence, and schema version 2 remain unchanged.
+
 ## Later Product Questions
 
 These are intentionally not part of the initial contract:

@@ -25,6 +25,16 @@ export function analysisCacheKey( postIdentity, draftHash, response ) {
 	].join( ':' );
 }
 
+export function isCurrentAnalysisResponse( response, expected ) {
+	return Boolean(
+		response &&
+			response.draft_hash === expected.draftHash &&
+			response.contract_version === expected.contractVersion &&
+			response.algorithm_version === expected.algorithmVersion &&
+			Array.isArray( response.suggestions )
+	);
+}
+
 export function aiCacheKey(
 	analysisId,
 	candidateIds,

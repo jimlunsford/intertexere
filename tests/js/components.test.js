@@ -1,5 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { AIControls, AnalysisBody } from '../../src/editor/components';
+import {
+	AIControls,
+	AnalysisBody,
+	insertionReadOnlyMessage,
+} from '../../src/editor/components';
 
 jest.mock( '@wordpress/components', () => {
 	// JSX in this isolated package-boundary mock needs the WordPress element runtime.
@@ -39,10 +43,26 @@ const suggestion = {
 	location: {
 		anchor_text: 'literal destination',
 		excerpt: 'A literal destination appears here.',
+		occurrence: 0,
 	},
 };
 
 describe( 'analysis presentation', () => {
+	test.each( [
+		[ 'no-specific-phrase', /No destination-specific phrase/ ],
+		[ 'unsupported-block', /block Intertexere does not edit/ ],
+		[ 'already-linked', /phrase is already linked/ ],
+		[ 'link-overlap', /overlaps another link/ ],
+		[ 'replacement-overlap', /non-text editor object/ ],
+		[ 'changed', /changed after analysis/ ],
+		[ 'unmappable', /could not be mapped safely/ ],
+		[ 'unknown-code', /not currently available/ ],
+	] )(
+		'maps %s to a precise safe read-only explanation',
+		( code, expected ) => {
+			expect( insertionReadOnlyMessage( code ) ).toMatch( expected );
+		}
+	);
 	test( 'renders Insert Link only for current exact insertion evidence and requires a click', () => {
 		const onInsert = jest.fn();
 		const insertionEvidence = new Map( [

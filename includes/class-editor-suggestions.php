@@ -8,8 +8,8 @@
 namespace Intertexere;
 
 final class Editor_Suggestions {
-	public const CONTRACT_VERSION = 1;
-	public const ALGORITHM_VERSION = 1;
+	public const CONTRACT_VERSION = 2;
+	public const ALGORITHM_VERSION = 2;
 	public const MAX_PAYLOAD_BYTES = 262144;
 	public const MAX_UNITS = 500;
 	public const MAX_UNIT_BYTES = 16384;
@@ -17,6 +17,7 @@ final class Editor_Suggestions {
 	public const MAX_PHRASES = 8;
 	public const MAX_CANDIDATES = 100;
 	public const MAX_RESULTS = 10;
+	public const MAX_LOCATION_CANDIDATES = 8;
 	public const MIN_SCORE = 25;
 	private const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS;
 
@@ -31,6 +32,13 @@ final class Editor_Suggestions {
 		'core/pullquote',
 		'core/verse',
 		'core/preformatted',
+	);
+
+	/** @var string[] */
+	private const INSERTION_BLOCKS = array(
+		'core/paragraph',
+		'core/heading',
+		'core/list-item',
 	);
 
 	/** @var string[] */
@@ -86,7 +94,7 @@ final class Editor_Suggestions {
 					'draft_hash'       => $draft_hash,
 					'index_generation' => $index_generation,
 					'graph_generation' => $graph_generation,
-					'algorithm_version'=> self::ALGORITHM_VERSION,
+					'algorithm_version' => self::ALGORITHM_VERSION,
 				)
 			)
 		);
@@ -105,7 +113,8 @@ final class Editor_Suggestions {
 				0,
 				false,
 				$started_at,
-				$query_started
+				$query_started,
+				0.0
 			);
 		}
 
@@ -152,7 +161,6 @@ final class Editor_Suggestions {
 				continue;
 			}
 
-			$location = self::find_location( $target, $records[ $candidate_id ], $parsed['text_units'], $draft_hash, $analysis_id );
 			$suggestions[] = array(
 				'target_post_id'   => $candidate_id,
 				'target_title'     => get_the_title( $target ),
@@ -161,7 +169,8 @@ final class Editor_Suggestions {
 				'score'            => $scored['score'],
 				'reason'           => $scored['reason'],
 				'already_linked'   => false,
-				'location'         => $location,
+				'_target'          => $target,
+				'_record'          => $records[ $candidate_id ],
 			);
 		}
 
@@ -181,6 +190,24 @@ final class Editor_Suggestions {
 		);
 
 		$suggestions = array_slice( $suggestions, 0, self::MAX_RESULTS );
+		$location_started = microtime( true );
+		$title_context = array_merge( array( $validated['title'] ), array_column( $suggestions, 'target_title' ) );
+		foreach ( $suggestions as &$suggestion ) {
+			$location_result = self::find_locations(
+				$suggestion['_target'],
+				$suggestion['_record'],
+				$parsed['text_units'],
+				$draft_hash,
+				$analysis_id,
+				$title_context
+			);
+			$suggestion['location']            = $location_result['candidates'][0] ?? null;
+			$suggestion['location_candidates'] = $location_result['candidates'];
+			$suggestion['location_status']     = $location_result['status'];
+			unset( $suggestion['_target'], $suggestion['_record'] );
+		}
+		unset( $suggestion );
+		$location_ms = round( ( microtime( true ) - $location_started ) * 1000, 3 );
 
 		return self::response(
 			$analysis_id,
@@ -192,7 +219,8 @@ final class Editor_Suggestions {
 			count( $candidate_ids ),
 			$retrieved['truncated'],
 			$started_at,
-			$query_started
+			$query_started,
+			$location_ms
 		);
 	}
 
@@ -483,6 +511,7 @@ final class Editor_Suggestions {
 			$block     = reset( $blocks );
 			$inner_html = is_array( $block ) ? (string) $block['innerHTML'] : '';
 			$pieces    = self::extract_text_pieces( $unit['block_name'], $inner_html );
+			$insertion_mapping = self::insertion_text_mapping( $unit['block_name'], $inner_html );
 
 			foreach ( $pieces as $piece_order => $piece ) {
 				$text = self::visible_text( $piece );
@@ -495,6 +524,8 @@ final class Editor_Suggestions {
 					'order'     => $order,
 					'piece'     => $piece_order,
 					'text'      => $text,
+					'insertable'=> null !== $insertion_mapping && 0 === $piece_order,
+					'insertion_text' => null !== $insertion_mapping && 0 === $piece_order ? $insertion_mapping['text'] : null,
 				);
 			}
 
@@ -564,6 +595,35 @@ final class Editor_Suggestions {
 		$text = preg_replace( '/\s+/u', ' ', $text );
 
 		return trim( is_string( $text ) ? $text : '' );
+	}
+
+	/**
+	 * Map one supported direct RichText attribute to the exact PHP plaintext
+	 * representation shared with insertion validation. The browser still owns
+	 * final UTF-16 range and serialization authority.
+	 *
+	 * @return array{content_html:string,text:string}|null
+	 */
+	public static function insertion_text_mapping( string $block_name, string $inner_html ): ?array {
+		$patterns = array(
+			'core/paragraph' => '#^\s*<p\b[^>]*>(.*)</p>\s*$#is',
+			'core/heading'   => '#^\s*<h[1-6]\b[^>]*>(.*)</h[1-6]>\s*$#is',
+			'core/list-item' => '#^\s*<li\b[^>]*>(.*)</li>\s*$#is',
+		);
+		if ( ! isset( $patterns[ $block_name ] ) || 1 !== preg_match( $patterns[ $block_name ], $inner_html, $match ) ) {
+			return null;
+		}
+
+		$content_html = $match[1];
+		$line_mapped  = preg_replace( '#<br\s*/?>#i', "\n", $content_html );
+		if ( ! is_string( $line_mapped ) ) {
+			return null;
+		}
+
+		return array(
+			'content_html' => $content_html,
+			'text'         => html_entity_decode( wp_strip_all_tags( $line_mapped, true ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' ),
+		);
 	}
 
 	/**
@@ -855,47 +915,131 @@ final class Editor_Suggestions {
 	 * @param array<int, array<string, mixed>> $text_units Parsed text units.
 	 * @return array<string, mixed>|null
 	 */
-	private static function find_location( \WP_Post $target, array $record, array $text_units, string $draft_hash, string $analysis_id ): ?array {
-		$title = trim( get_the_title( $target ) );
-		foreach ( $text_units as $unit ) {
-			$offset = self::string_position( $unit['text'], $title );
-			if ( '' !== $title && false !== $offset ) {
-				return self::location_value( $unit, $title, (int) $offset, $draft_hash, $analysis_id );
+	private static function find_locations( \WP_Post $target, array $record, array $text_units, string $draft_hash, string $analysis_id, array $title_context ): array {
+		$title         = trim( get_the_title( $target ) );
+		$generic_terms = self::shared_leading_title_terms( $title, $title_context );
+		$phrases       = array();
+		self::add_location_phrase( $phrases, $title );
+
+		$title_parts = preg_split( '/\s*(?:[:|]|\x{2013}|\x{2014})\s*|\s+-\s+/u', $title, 2 );
+		if ( is_array( $title_parts ) && 2 === count( $title_parts ) ) {
+			self::add_location_phrase( $phrases, $title_parts[1] );
+		}
+
+		$headings = json_decode( (string) $record['headings'], true );
+		foreach ( is_array( $headings ) ? $headings : array() as $heading ) {
+			$heading = is_string( $heading ) ? trim( $heading ) : '';
+			$heading_terms = array_values( array_diff( self::normalize_terms( $heading ), $generic_terms ) );
+			if ( ! empty( $heading_terms ) ) {
+				self::add_location_phrase( $phrases, $heading );
 			}
 		}
 
-		$candidate_terms = array_values(
-			array_unique(
-				array_merge(
-					self::normalize_terms( (string) $record['title'] ),
-					self::terms_from_json_strings( (string) $record['headings'] )
-				)
+		$specific_terms = array_values(
+			array_diff(
+				array_unique(
+					array_merge(
+						self::normalize_terms( (string) $record['title'] ),
+						self::terms_from_json_strings( (string) $record['headings'] )
+					)
+				),
+				$generic_terms
 			)
 		);
-		$best = null;
 		foreach ( $text_units as $unit ) {
-			$anchor = self::overlap_anchor( $unit['text'], $candidate_terms );
-			$overlap_count = count( array_intersect( self::normalize_terms( $unit['text'] ), $candidate_terms ) );
-			if ( null === $best || $overlap_count > $best['overlap'] ) {
-				$best = array( 'unit' => $unit, 'anchor' => $anchor, 'overlap' => $overlap_count );
+			$search_text = ! empty( $unit['insertable'] ) && is_string( $unit['insertion_text'] ) ? $unit['insertion_text'] : $unit['text'];
+			$anchor = self::overlap_anchor( $search_text, $specific_terms );
+			if ( null !== $anchor ) {
+				self::add_location_phrase( $phrases, $anchor['text'] );
 			}
 		}
 
-		if ( null === $best || 0 === $best['overlap'] ) {
-			return null;
+		$candidates        = array();
+		$seen              = array();
+		$unsupported_match = false;
+		foreach ( $phrases as $phrase ) {
+			foreach ( $text_units as $unit ) {
+				$search_text = ! empty( $unit['insertable'] ) && is_string( $unit['insertion_text'] ) ? $unit['insertion_text'] : $unit['text'];
+				$matches = self::case_insensitive_occurrences( $search_text, $phrase );
+				if ( empty( $matches ) ) {
+					continue;
+				}
+				if ( empty( $unit['insertable'] ) || ! is_string( $unit['insertion_text'] ) ) {
+					$unsupported_match = true;
+					continue;
+				}
+
+				foreach ( $matches as $match ) {
+					$identity = $unit['client_id'] . "\0" . $match['text'] . "\0" . $match['occurrence'];
+					if ( isset( $seen[ $identity ] ) ) {
+						continue;
+					}
+					$seen[ $identity ] = true;
+					$candidates[] = self::location_value( $unit, $match['text'], $match['offset'], $match['occurrence'], $draft_hash, $analysis_id );
+					if ( count( $candidates ) >= self::MAX_LOCATION_CANDIDATES ) {
+						break 3;
+					}
+				}
+			}
 		}
 
-		if ( null === $best['anchor'] ) {
-			return self::location_value( $best['unit'], null, null, $draft_hash, $analysis_id );
-		}
-
-		return self::location_value(
-			$best['unit'],
-			$best['anchor']['text'],
-			$best['anchor']['offset'],
-			$draft_hash,
-			$analysis_id
+		return array(
+			'candidates' => $candidates,
+			'status'     => ! empty( $candidates ) ? 'candidates' : ( $unsupported_match ? 'unsupported-block' : 'no-specific-phrase' ),
 		);
+	}
+
+	private static function add_location_phrase( array &$phrases, string $phrase ): void {
+		$phrase = trim( $phrase );
+		$key    = self::normalize_phrase( $phrase );
+		if ( '' !== $key && ! isset( $phrases[ $key ] ) ) {
+			$phrases[ $key ] = $phrase;
+		}
+	}
+
+	/** @return string[] */
+	private static function shared_leading_title_terms( string $title, array $title_context ): array {
+		$target_terms = self::normalize_terms( $title );
+		$longest      = 0;
+		$skipped_self = false;
+		foreach ( $title_context as $other_title ) {
+			if ( ! is_string( $other_title ) ) {
+				continue;
+			}
+			if ( ! $skipped_self && self::normalize_phrase( $other_title ) === self::normalize_phrase( $title ) ) {
+				$skipped_self = true;
+				continue;
+			}
+			$other_terms = self::normalize_terms( $other_title );
+			$shared      = 0;
+			while ( isset( $target_terms[ $shared ], $other_terms[ $shared ] ) && $target_terms[ $shared ] === $other_terms[ $shared ] ) {
+				++$shared;
+			}
+			$longest = max( $longest, $shared );
+		}
+
+		return $longest > 0 ? array_slice( $target_terms, 0, $longest ) : array();
+	}
+
+	/** @return array<int,array{text:string,offset:int,occurrence:int}> */
+	private static function case_insensitive_occurrences( string $text, string $needle ): array {
+		$count = '' === $needle ? 0 : preg_match_all( '/' . preg_quote( $needle, '/' ) . '/iu', $text, $captured, PREG_OFFSET_CAPTURE );
+		if ( false === $count || 0 === $count ) {
+			return array();
+		}
+
+		$matches = array();
+		foreach ( $captured[0] as $match ) {
+			$exact       = (string) $match[0];
+			$byte_offset = (int) $match[1];
+			$before      = substr( $text, 0, $byte_offset );
+			$matches[]   = array(
+				'text'       => $exact,
+				'offset'     => self::byte_to_character_offset( $text, $byte_offset ),
+				'occurrence' => substr_count( $before, $exact ),
+			);
+		}
+		return $matches;
 	}
 
 	/** @return array{text:string,offset:int}|null */
@@ -957,25 +1101,17 @@ final class Editor_Suggestions {
 	}
 
 	/** @return array<string, mixed> */
-	private static function location_value( array $unit, ?string $anchor, ?int $offset, string $draft_hash, string $analysis_id ): array {
-		$excerpt = self::string_slice( $unit['text'], 0, 180 );
-		$length  = null === $anchor ? null : self::string_length( $anchor );
-		$occurrence = null;
-
-		if ( null !== $anchor && null !== $offset ) {
-			$before     = self::string_slice( $unit['text'], 0, $offset );
-			$occurrence = max( 0, substr_count( self::lower( $before ), self::lower( $anchor ) ) );
-		}
-
+	private static function location_value( array $unit, string $anchor, int $offset, int $occurrence, string $draft_hash, string $analysis_id ): array {
+		$excerpt = self::string_slice( (string) $unit['insertion_text'], 0, 180 );
 		return array(
 			'block_client_id' => $unit['client_id'],
 			'block_name'      => $unit['block_name'],
-			'block_text_hash' => hash( 'sha256', $unit['text'] ),
+			'block_text_hash' => hash( 'sha256', (string) $unit['insertion_text'] ),
 			'excerpt'         => $excerpt,
 			'context'         => $excerpt,
 			'anchor_text'     => $anchor,
 			'start'           => $offset,
-			'length'          => $length,
+			'length'          => self::string_length( $anchor ),
 			'occurrence'      => $occurrence,
 			'draft_hash'      => $draft_hash,
 			'analysis_id'     => $analysis_id,
@@ -992,18 +1128,10 @@ final class Editor_Suggestions {
 	}
 
 	/** @return array<string, mixed> */
-	private static function response( string $analysis_id, string $draft_hash, string $index_generation, string $graph_generation, array $suggestions, int $already_linked, int $candidate_count, bool $truncated, float $started_at, int $query_started ): array {
-		self::$last_metrics = array(
-			'query_count'       => get_num_queries() - $query_started,
-			'candidate_count'   => $candidate_count,
-			'suggestion_count'  => count( $suggestions ),
-			'payload_limit'     => self::MAX_PAYLOAD_BYTES,
-			'elapsed_ms'        => round( ( microtime( true ) - $started_at ) * 1000, 3 ),
-		);
-
-		return array(
+	private static function response( string $analysis_id, string $draft_hash, string $index_generation, string $graph_generation, array $suggestions, int $already_linked, int $candidate_count, bool $truncated, float $started_at, int $query_started, float $location_ms ): array {
+		$response = array(
 			'contract_version' => self::CONTRACT_VERSION,
-			'algorithm_version'=> self::ALGORITHM_VERSION,
+			'algorithm_version' => self::ALGORITHM_VERSION,
 			'analysis_id'      => $analysis_id,
 			'draft_hash'       => $draft_hash,
 			'index_generation' => $index_generation,
@@ -1013,8 +1141,26 @@ final class Editor_Suggestions {
 			'limits'           => array(
 				'candidate_count' => $candidate_count,
 				'truncated'       => $truncated,
+				'max_location_candidates' => self::MAX_LOCATION_CANDIDATES,
 			),
 		);
+		$encoded = wp_json_encode( $response );
+		$maximum_locations = 0;
+		foreach ( $suggestions as $suggestion ) {
+			$maximum_locations = max( $maximum_locations, count( $suggestion['location_candidates'] ?? array() ) );
+		}
+		self::$last_metrics = array(
+			'query_count'       => get_num_queries() - $query_started,
+			'candidate_count'   => $candidate_count,
+			'suggestion_count'  => count( $suggestions ),
+			'payload_limit'     => self::MAX_PAYLOAD_BYTES,
+			'location_selection_ms' => $location_ms,
+			'response_bytes'    => is_string( $encoded ) ? strlen( $encoded ) : 0,
+			'maximum_location_candidates' => $maximum_locations,
+			'elapsed_ms'        => round( ( microtime( true ) - $started_at ) * 1000, 3 ),
+		);
+
+		return $response;
 	}
 
 	/** @return array<string, int[]>|\WP_Error */

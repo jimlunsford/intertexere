@@ -3,6 +3,7 @@ import {
 	aiCacheKey,
 	createRequestGate,
 	isCurrentAIResponse,
+	isCurrentAnalysisResponse,
 	sameOrderedValues,
 	visibleSuggestions,
 } from '../../src/editor/request-state';
@@ -49,6 +50,34 @@ describe( 'asynchronous request state', () => {
 		] ) {
 			expect(
 				isCurrentAIResponse(
+					{ ...response, [ field ]: value },
+					expected
+				)
+			).toBe( false );
+		}
+	} );
+
+	test( 'accepts only the current deterministic response contract and algorithm', () => {
+		const expected = {
+			draftHash: 'draft',
+			contractVersion: 2,
+			algorithmVersion: 2,
+		};
+		const response = {
+			draft_hash: 'draft',
+			contract_version: 2,
+			algorithm_version: 2,
+			suggestions: [],
+		};
+		expect( isCurrentAnalysisResponse( response, expected ) ).toBe( true );
+		for ( const [ field, value ] of [
+			[ 'draft_hash', 'old-draft' ],
+			[ 'contract_version', 1 ],
+			[ 'algorithm_version', 1 ],
+			[ 'suggestions', null ],
+		] ) {
+			expect(
+				isCurrentAnalysisResponse(
 					{ ...response, [ field ]: value },
 					expected
 				)

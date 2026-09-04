@@ -2,16 +2,55 @@ import { Button, Notice, Placeholder, Spinner } from '@wordpress/components';
 import { external } from '@wordpress/icons';
 import { __ } from '@wordpress/i18n';
 
+export function insertionReadOnlyMessage( reason ) {
+	const messages = {
+		'no-specific-phrase': __(
+			'No destination-specific phrase was found in a supported block.',
+			'intertexere'
+		),
+		'unsupported-block': __(
+			'Matching text appears only in a block Intertexere does not edit.',
+			'intertexere'
+		),
+		'already-linked': __(
+			'The matching phrase is already linked.',
+			'intertexere'
+		),
+		'link-overlap': __(
+			'The matching phrase overlaps another link.',
+			'intertexere'
+		),
+		'replacement-overlap': __(
+			'The matching phrase crosses a non-text editor object.',
+			'intertexere'
+		),
+		changed: __(
+			'The phrase or block changed after analysis. Refresh suggestions.',
+			'intertexere'
+		),
+		unmappable: __(
+			'The matching phrase could not be mapped safely to the current editor text.',
+			'intertexere'
+		),
+		unavailable: __(
+			'This location is not currently available for safe insertion.',
+			'intertexere'
+		),
+	};
+	return messages[ reason ] || messages.unavailable;
+}
+
 export function SuggestionCard( {
 	suggestion,
 	onDismiss,
 	stale,
 	aiEvaluation,
 	insertionEvidence,
+	insertionAvailability,
 	insertionState,
 	onInsert,
 } ) {
-	const location = suggestion.location;
+	const location = insertionAvailability?.location || suggestion.location;
 	return (
 		<div className="intertexere-suggestion-card">
 			<h3>{ suggestion.target_title }</h3>
@@ -59,14 +98,6 @@ export function SuggestionCard( {
 					{ location.excerpt }
 				</p>
 			) }
-			{ ! location && (
-				<p>
-					{ __(
-						'This relationship has no safe phrase or block location.',
-						'intertexere'
-					) }
-				</p>
-			) }
 			<p>
 				{ suggestion.already_linked
 					? __( 'Already linked from this draft.', 'intertexere' )
@@ -80,11 +111,11 @@ export function SuggestionCard( {
 					) }
 				</p>
 			) }
-			{ ! stale && location && ! insertionEvidence && (
+			{ ! stale && ! insertionEvidence && (
 				<p>
-					{ __(
-						'This location is read-only because its exact RichText range is not currently insertable.',
-						'intertexere'
+					{ insertionReadOnlyMessage(
+						insertionAvailability?.reason ||
+							suggestion.location_status
 					) }
 				</p>
 			) }
@@ -148,6 +179,7 @@ export function AnalysisBody( {
 	aiEvaluations = new Map(),
 	enhancedMode = false,
 	insertionEvidence = new Map(),
+	insertionAvailability = new Map(),
 	insertionStates = {},
 	onInsert,
 } ) {
@@ -196,6 +228,9 @@ export function AnalysisBody( {
 				stale={ stale }
 				aiEvaluation={ aiEvaluations.get( suggestion.target_post_id ) }
 				insertionEvidence={ insertionEvidence.get(
+					suggestion.target_post_id
+				) }
+				insertionAvailability={ insertionAvailability.get(
 					suggestion.target_post_id
 				) }
 				insertionState={

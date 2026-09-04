@@ -7,8 +7,10 @@ import {
 	contentIdentity,
 	findExactOccurrence,
 	inspectInsertionRange,
+	inspectSuggestionInsertion,
 	isCurrentValidationResponse,
 	resolveInsertionEvidence,
+	richTextPlainText,
 } from '../../src/editor/insertion';
 
 jest.mock( '@wordpress/blocks', () => ( {
@@ -100,6 +102,17 @@ describe( 'exact RichText range identity', () => {
 			status: 'ready',
 			range: { start: 0, end: 5 },
 		} );
+	} );
+
+	test( 'maps entities, Unicode, emoji, inline formatting, spaces, and line breaks exactly', () => {
+		expect(
+			richTextPlainText(
+				block(
+					'core/paragraph',
+					'<strong>café &amp; resolve 🙂</strong>  keep<br>moving'
+				)
+			)
+		).toBe( 'café & resolve 🙂  keep\nmoving' );
 	} );
 
 	test.each( [
@@ -215,7 +228,7 @@ describe( 'RichText link mutation', () => {
 			'<a href="https://example.test/current/">Exact</a>'
 		);
 		expect( inspectInsertionRange( same, 'Exact', 0 ).status ).toBe(
-			'overlap'
+			'linked'
 		);
 		expect(
 			applyValidatedLink(
@@ -312,15 +325,17 @@ describe( 'RichText link mutation', () => {
 describe( 'bounded insertion evidence', () => {
 	const suggestion = {
 		target_post_id: 7,
+		target_permalink: 'https://example.test/current/',
 		location: {
 			block_client_id: 'block-1',
 			block_name: 'core/paragraph',
 			anchor_text: 'Exact',
-			start: 2,
+			start: 999,
+			occurrence: 0,
 		},
 	};
 
-	test( 'maps the PHP Unicode location hint to one exact JS occurrence', () => {
+	test( 'uses exact text plus occurrence and never treats a PHP offset as a JS index', () => {
 		const resolved = resolveInsertionEvidence( suggestion, null, () =>
 			block( 'core/paragraph', '🙂 Exact and Exact' )
 		);
@@ -331,21 +346,213 @@ describe( 'bounded insertion evidence', () => {
 		} );
 	} );
 
-	test( 'never falls back to another occurrence after a stale location', () => {
+	test( 'exact text remains case-sensitive', () => {
 		expect(
-			resolveInsertionEvidence( suggestion, null, () =>
-				block( 'core/paragraph', 'Exact and Exact' )
+			resolveInsertionEvidence(
+				{
+					...suggestion,
+					location: { ...suggestion.location, anchor_text: 'exact' },
+				},
+				null,
+				() => block( 'core/paragraph', 'Exact and Exact' )
 			)
 		).toBeNull();
+	} );
+
+	test( 'selects the first currently insertable bounded alternate', () => {
+		const alternateSuggestion = {
+			...suggestion,
+			location_candidates: [
+				{
+					...suggestion.location,
+					block_client_id: 'linked',
+				},
+				{
+					...suggestion.location,
+					block_client_id: 'safe',
+					anchor_text: 'keep moving',
+				},
+			],
+		};
+		const availability = inspectSuggestionInsertion(
+			alternateSuggestion,
+			null,
+			( clientId ) =>
+				clientId === 'linked'
+					? block(
+							'core/paragraph',
+							'<a href="https://example.test/other/">Exact</a>',
+							'linked'
+					  )
+					: block( 'core/paragraph', 'We keep moving today.', 'safe' )
+		);
+		expect( availability.evidence ).toMatchObject( {
+			block_client_id: 'safe',
+			exact_text: 'keep moving',
+			occurrence: 0,
+		} );
+		expect( availability.inspectionMs ).toBeGreaterThanOrEqual( 0 );
+	} );
+
+	test.each( [
+		[
+			'unsupported block',
+			{
+				block_name: 'core/pullquote',
+				anchor_text: 'Exact',
+			},
+			block( 'core/pullquote', 'Exact', 'unsafe' ),
+		],
+		[
+			'already-linked range',
+			{ anchor_text: 'Exact' },
+			block(
+				'core/paragraph',
+				'<a href="https://example.test/other/">Exact</a>',
+				'unsafe'
+			),
+		],
+		[
+			'another-link overlap',
+			{ anchor_text: 'Exact phrase' },
+			block(
+				'core/paragraph',
+				'<a href="https://example.test/other/">Exact</a> phrase',
+				'unsafe'
+			),
+		],
+		[
+			'RichText replacement overlap',
+			{ anchor_text: 'Before  after' },
+			block(
+				'core/paragraph',
+				'Before <img src="x.jpg" alt="replacement"> after',
+				'unsafe'
+			),
+		],
+	] )(
+		'skips an %s candidate and selects a later safe candidate',
+		( label, first, unsafeBlock ) => {
+			const safe = {
+				...suggestion.location,
+				block_client_id: 'safe',
+				anchor_text: 'keep moving',
+			};
+			const availability = inspectSuggestionInsertion(
+				{
+					...suggestion,
+					location_candidates: [
+						{
+							...suggestion.location,
+							block_client_id: 'unsafe',
+							...first,
+						},
+						safe,
+					],
+				},
+				null,
+				( clientId ) =>
+					clientId === 'unsafe'
+						? unsafeBlock
+						: block( 'core/paragraph', 'We keep moving.', 'safe' )
+			);
+			expect( availability.location ).toBe( safe );
+			expect( availability.evidence ).toMatchObject( {
+				block_client_id: 'safe',
+				exact_text: 'keep moving',
+			} );
+		}
+	);
+
+	test( 'skips unsafe occurrence zero and selects a later occurrence in the same block', () => {
+		const first = { ...suggestion.location, block_client_id: 'repeated' };
+		const second = { ...first, occurrence: 1 };
+		const availability = inspectSuggestionInsertion(
+			{
+				...suggestion,
+				location_candidates: [ first, second ],
+			},
+			null,
+			() =>
+				block(
+					'core/paragraph',
+					'<a href="https://example.test/other/">Exact</a> then Exact',
+					'repeated'
+				)
+		);
+		expect( availability.location ).toBe( second );
+		expect( availability.evidence ).toMatchObject( {
+			exact_text: 'Exact',
+			occurrence: 1,
+		} );
+	} );
+
+	test( 'inspects the maximum bounded location set within the interactive budget', () => {
+		const candidates = Array.from( { length: 8 }, ( unused, index ) => ( {
+			...suggestion.location,
+			block_client_id: `candidate-${ index }`,
+		} ) );
+		const started = performance.now();
+		const availability = inspectSuggestionInsertion(
+			{ ...suggestion, location_candidates: candidates },
+			null,
+			( clientId ) => {
+				const index = Number( clientId.replace( 'candidate-', '' ) );
+				return block(
+					'core/paragraph',
+					index === 7
+						? 'Exact'
+						: '<a href="https://example.test/other/">Exact</a>',
+					clientId
+				);
+			}
+		);
+		const elapsed = performance.now() - started;
+		process.stdout.write(
+			`\n0.6.1 client location fixture: 8 candidates, ${ elapsed.toFixed(
+				3
+			) } ms\n`
+		);
+		expect( availability.evidence.block_client_id ).toBe( 'candidate-7' );
+		expect( elapsed ).toBeLessThan( 100 );
+	} );
+
+	test.each( [
+		[
+			'<a href="https://example.test/other/">Exact</a>',
+			'Already linked',
+			'already-linked',
+		],
+		[
+			'<a href="https://example.test/other/">Ex</a>act',
+			'Partial overlap',
+			'link-overlap',
+		],
+		[
+			'Before <img src="x.jpg" alt="replacement"> after',
+			'Replacement overlap',
+			'replacement-overlap',
+		],
+	] )( 'reports precise read-only reason for %s', ( html, label, reason ) => {
+		const current = block( 'core/paragraph', html );
+		const exactText =
+			label === 'Replacement overlap' ? create( { html } ).text : 'Exact';
+		const availability = inspectSuggestionInsertion(
+			{
+				...suggestion,
+				location: { ...suggestion.location, anchor_text: exactText },
+			},
+			null,
+			() => current
+		);
+		expect( availability.evidence ).toBeNull();
+		expect( availability.reason ).toBe( reason );
 	} );
 
 	test.each( [
 		[ null, 'block disappearance' ],
 		[ block( 'core/heading', '🙂 Exact and Exact' ), 'block name change' ],
-		[
-			block( 'core/paragraph', '🙂 Changed and Exact' ),
-			'attribute change',
-		],
+		[ block( 'core/paragraph', '🙂 Changed only' ), 'attribute change' ],
 	] )( 'rejects %s', ( currentBlock ) => {
 		expect(
 			resolveInsertionEvidence( suggestion, null, () => currentBlock )

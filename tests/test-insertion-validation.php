@@ -280,6 +280,26 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
 	}
 
+	public function test_fresh_analysis_authorizes_a_bounded_alternate_but_rejects_an_invented_anchor(): void {
+		$this->draft = $this->draft_with_markup(
+			'<!-- wp:paragraph --><p><a href="https://outside.example/existing/">Insertion Target Alpha</a> then Insertion Target Alpha and Alpha.</p><!-- /wp:paragraph -->'
+		);
+		$this->refresh_analysis();
+		$locations = $this->analysis['suggestions'][0]['location_candidates'];
+		$this->assertCount( 2, $locations );
+		$this->assertSame( 1, $locations[1]['occurrence'] );
+
+		$request = $this->request_payload();
+		$request['anchor']['occurrence'] = 1;
+		$result = Insertion_Validation::validate( $request );
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['anchor']['occurrence'] );
+
+		$request = $this->request_payload();
+		$request['anchor']['exact_text'] = 'Alpha';
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
+	}
+
 	public function test_repeated_unicode_anchor_occurrence_is_exact(): void {
 		$this->draft = $this->draft_with_markup(
 			'<!-- wp:paragraph --><p>🙂 Insertion Target Alpha, then Insertion Target Alpha.</p><!-- /wp:paragraph -->'

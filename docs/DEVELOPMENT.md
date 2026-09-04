@@ -146,6 +146,12 @@ Milestone 0.6 was implemented on `feature/0.6-site-link-audit` only after indepe
 
 The audit is server-rendered, on-demand, read-only, generation-bound, and keyset-paginated. It adds no audit JavaScript, persistence, REST route, or schema. Current permalink authority uses Core permalink functions only after bounded bulk priming for hierarchical ancestors, `%category%` terms, and `%author%` users; a dependency bound or database-dependent custom filter that cannot be proved fails unavailable. Noncanonical review is conservatively limited to a representative explicit Core query ID that still matches the current target. Tests exercise bounded representative, 2,000-inbound, 1,000-post/4,000-edge, nested-page, and category/author permalink fixtures, record query, latency, and memory measurements on every supported PHP version, and retain the complete 0.1 through 0.5 regression matrix.
 
+### 0.6.1 insertable-location maintenance boundary
+
+The 0.6.1 maintenance patch changes deterministic location selection and its response contract, not candidate retrieval or relevance scoring. It returns at most eight ordered insertion candidates, keeps the paragraph, heading, and list-item allowlist unchanged, and requires the browser to inspect current RichText before exposing Insert Link. Fresh server validation must prove that the client's selected exact substring and occurrence remain in the current authorized set. The production-style fixture covers a generic shared prefix, unsupported and linked early matches, a later safe phrase, repeated occurrences, and a read-only destination without specific source text.
+
+The PHP matrix records query count, total analysis latency, location-selection latency, response size, and maximum location candidates. Jest records bounded RichText inspection and the existing maximum-unit mutation fixture. The WordPress 7.1 iframe suite remains the authority for the button, exact mutation, canonical permalink, dirty state, Undo, Redo, and lack of automatic save or AI. Schema remains version 2 and no persistent cache or location record is permitted.
+
 ## 10. Content Mutation Requires Stronger Testing
 
 Any change that can modify post content must test at least:

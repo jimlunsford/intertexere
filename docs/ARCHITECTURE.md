@@ -80,7 +80,7 @@ Intertexere uses a staged pipeline rather than sending the entire site to an AI 
 
 ### Stage 1: deterministic candidate retrieval and suggestions
 
-Milestone 0.3 uses only local WordPress data, the active content index, and the active graph to produce read-only suggestions. It performs bounded candidate retrieval, hard exclusions, a documented integer scoring model, stable ordering, and deterministic location selection.
+Milestone 0.3 uses only local WordPress data, the active content index, and the active graph to produce read-only suggestions. It performs bounded candidate retrieval, hard exclusions, a documented integer scoring model, stable ordering, and deterministic location selection. The 0.6.1 maintenance selector keeps semantic evidence separate from insertion eligibility, suppresses generic shared-title prefixes as fallback anchors, and returns at most eight ordered supported location candidates without changing relevance scores.
 
 Signals include title and heading overlap, meaningful term overlap, shared taxonomy, post type, and bounded graph relationships. No embeddings or semantic AI are part of this stage. No suggestion is a valid result.
 
@@ -131,7 +131,7 @@ Any future operation that changes post content must require appropriate WordPres
 
 0.3 suggestions are response objects, not persistent records. Their identity binds a server-computed canonical draft hash to active index and graph generations and an algorithm version.
 
-Target post ID is durable identity. Current target title, permalink, post type, status, and eligibility are resolved from WordPress when the response is constructed. Editor block client IDs, excerpts, anchors, offsets, and hashes are session-scoped evidence and must be treated as stale before any future insertion.
+Target post ID is durable identity. Current target title, permalink, post type, status, and eligibility are resolved from WordPress when the response is constructed. Editor block client IDs, excerpts, anchors, offsets, and hashes are session-scoped evidence and must be treated as stale before insertion. Exact draft substring plus zero-based occurrence is the PHP-to-JavaScript anchor identity; diagnostic PHP character offsets never become JavaScript RichText indices.
 
 Dismissal in 0.3 is session-only. Persistent feedback, recommendation learning, and site-wide preferences require a later product decision.
 
@@ -155,7 +155,7 @@ Intertexere must not silently rewrite prose.
 - Background analysis must never change published or draft content.
 - Future automatic or bulk mutation requires a separate explicit product decision.
 
-The implemented 0.5 architecture adds a dedicated read-only insertion-validation service followed by one local Block Editor state update. The server reruns deterministic authority, resolves current target eligibility and permalink, rejects draft-wide duplicate target identity, and returns request-scoped evidence without writing content. The client then rechecks request ownership, post identity, block identity, direct RichText content, exact occurrence, and link boundaries before using the Core `core/link` format and `updateBlockAttributes()`.
+The implemented 0.5 architecture adds a dedicated read-only insertion-validation service followed by one local Block Editor state update. The server reruns deterministic authority, proves that the selected exact text and occurrence remain in the current bounded authorized location set, resolves current target eligibility and permalink, rejects draft-wide duplicate target identity, and returns request-scoped evidence without writing content. The client selects the first currently safe authorized candidate, then rechecks request ownership, post identity, block identity, direct RichText content, exact occurrence, and link boundaries before using the Core `core/link` format and `updateBlockAttributes()`.
 
 The initial insertion allowlist is `core/paragraph`, `core/heading`, and `core/list-item`, each through its direct `content` attribute. Other analyzable locations remain read-only until their attribute paths and runtime behavior receive separate proof. The complete mutation and failure contract is in [Explicit Link Insertion](LINK-INSERTION.md), with completion requirements in [0.5 Acceptance Criteria](ACCEPTANCE-0.5.md).
 

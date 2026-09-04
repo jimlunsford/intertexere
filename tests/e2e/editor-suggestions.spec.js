@@ -785,6 +785,144 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		}
 	} );
 
+	test( 'uses a later destination-specific location for similarly titled production-style suggestions', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'available' },
+		} );
+		const categoryOne = await requestUtils.rest( {
+			path: '/wp/v2/categories',
+			method: 'POST',
+			data: { name: `Series fixture ${ Date.now() }` },
+		} );
+		const categoryTwo = await requestUtils.rest( {
+			path: '/wp/v2/categories',
+			method: 'POST',
+			data: { name: `Location fixture ${ Date.now() }` },
+		} );
+		const titles = [
+			'Discipline Dispatch: Keep Moving',
+			'Discipline Dispatch: Keep Swinging',
+			'Discipline Dispatch: Power Was Yours',
+			'Discipline Dispatch: All In or All Out',
+		];
+		const targets = [];
+		for ( const title of titles ) {
+			targets.push(
+				await requestUtils.createPost( {
+					title,
+					content: `<!-- wp:paragraph --><p>${ title } supporting destination content.</p><!-- /wp:paragraph -->`,
+					status: 'publish',
+					categories: [ categoryOne.id, categoryTwo.id ],
+				} )
+			);
+		}
+		const sourceContent =
+			'<!-- wp:paragraph --><p><a href="https://outside.example/linked/">keep moving</a> after a Discipline Dispatch introduction.</p><!-- /wp:paragraph -->' +
+			'<!-- wp:pullquote --><figure class="wp-block-pullquote"><blockquote><p>keep moving in an unsupported block.</p></blockquote></figure><!-- /wp:pullquote -->' +
+			'<!-- wp:paragraph --><p>We keep moving when the first location is unsafe.</p><!-- /wp:paragraph -->';
+		const source = await requestUtils.createPost( {
+			title: 'Discipline Dispatch: Protect the Floor',
+			content: sourceContent,
+			status: 'draft',
+			categories: [ categoryOne.id, categoryTwo.id ],
+		} );
+		await admin.editPost( source.id );
+		await openSidebar( page );
+		await expect(
+			page.getByRole( 'heading', { name: titles[ 0 ], exact: true } )
+		).toHaveCount( 0 );
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		for ( const title of titles ) {
+			await expect(
+				page.getByRole( 'heading', { name: title, exact: true } )
+			).toBeVisible();
+		}
+
+		const movingCard = page
+			.getByRole( 'heading', { name: titles[ 0 ], exact: true } )
+			.locator( '..' );
+		await expect( movingCard.getByText( '“keep moving”' ) ).toBeVisible();
+		await expect(
+			movingCard.getByRole( 'button', { name: 'Insert Link' } )
+		).toBeVisible();
+		const powerCard = page
+			.getByRole( 'heading', { name: titles[ 2 ], exact: true } )
+			.locator( '..' );
+		await expect(
+			powerCard.getByText( /No destination-specific phrase/ )
+		).toBeVisible();
+		await expect(
+			powerCard.getByRole( 'button', { name: 'Insert Link' } )
+		).toHaveCount( 0 );
+		await expect(
+			powerCard.getByRole( 'link', { name: /View/ } )
+		).toBeVisible();
+		await expect(
+			powerCard.getByRole( 'button', { name: 'Dismiss' } )
+		).toBeVisible();
+		const proposed = await page
+			.getByText( /Proposed phrase:/ )
+			.locator( '..' )
+			.allTextContents();
+		expect(
+			proposed.some( ( text ) =>
+				text.includes( '“Discipline Dispatch”' )
+			)
+		).toBe( false );
+
+		const beforeInsertion = await editor.getEditedPostContent();
+		await movingCard.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await expect( movingCard.getByRole( 'status' ) ).toContainText(
+			'Link inserted in the unsaved draft'
+		);
+		const inserted = await editor.getEditedPostContent();
+		const links = await page.evaluate( ( content ) => {
+			const documentValue = new globalThis.DOMParser().parseFromString(
+				content,
+				'text/html'
+			);
+			return Array.from( documentValue.querySelectorAll( 'a' ) ).map(
+				( anchor ) => ( {
+					href: anchor.getAttribute( 'href' ),
+					text: anchor.textContent,
+				} )
+			);
+		}, inserted );
+		expect( links ).toEqual( [
+			{ href: 'https://outside.example/linked/', text: 'keep moving' },
+			{ href: targets[ 0 ].link, text: 'keep moving' },
+		] );
+		expect(
+			await page.evaluate( () =>
+				window.wp.data.select( 'core/editor' ).isEditedPostDirty()
+			)
+		).toBe( true );
+		const database = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ source.id }`,
+			params: { context: 'edit' },
+		} );
+		expect( database.content.raw ).toBe( sourceContent );
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'core/editor' ).undo()
+		);
+		await expect
+			.poll( () => editor.getEditedPostContent() )
+			.toBe( beforeInsertion );
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'core/editor' ).redo()
+		);
+		await expect
+			.poll( () => editor.getEditedPostContent() )
+			.toBe( inserted );
+	} );
+
 	test( 'routes an AI-kept exact anchor through the same insertion validation', async ( {
 		admin,
 		editor,
