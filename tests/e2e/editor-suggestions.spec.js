@@ -794,7 +794,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		await requestUtils.rest( {
 			path: '/intertexere-e2e/v1/mode',
 			method: 'POST',
-			data: { mode: 'available' },
+			data: { mode: 'disabled' },
 		} );
 		const categoryOne = await requestUtils.rest( {
 			path: '/wp/v2/categories',
