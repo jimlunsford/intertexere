@@ -991,7 +991,7 @@ final class Editor_Suggestions {
 
 	private static function add_location_phrase( array &$phrases, string $phrase ): void {
 		$phrase = trim( $phrase );
-		$key    = self::normalize_phrase( $phrase );
+		$key    = self::lower( $phrase );
 		if ( '' !== $key && ! isset( $phrases[ $key ] ) ) {
 			$phrases[ $key ] = $phrase;
 		}
