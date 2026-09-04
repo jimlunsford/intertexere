@@ -2,7 +2,7 @@
   "name": "jimlunsford/intertexere",
   "description": "Contextual internal linking assistant for WordPress.",
   "type": "wordpress-plugin",
-  "license": "GPL-2.0-or-later",
+  "license": "AGPL-3.0-or-later",
   "require": {
     "php": ">=7.4"
   },
