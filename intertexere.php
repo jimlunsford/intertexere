@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Intertexere
  * Description: Contextual internal linking assistant for WordPress.
- * Version: 0.6.1
+ * Version: 0.6.2
  * Requires at least: 7.1
  * Requires PHP: 7.4
  * Author: Jim Lunsford
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'INTERTEXERE_VERSION', '0.6.1' );
+define( 'INTERTEXERE_VERSION', '0.6.2' );
 define( 'INTERTEXERE_MINIMUM_WP_VERSION', '7.1' );
 define( 'INTERTEXERE_FILE', __FILE__ );
 define( 'INTERTEXERE_PATH', plugin_dir_path( __FILE__ ) );

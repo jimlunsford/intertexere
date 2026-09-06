@@ -119,7 +119,7 @@ export async function sha256( value ) {
 
 export function clientHashInput( snapshot ) {
 	return JSON.stringify( {
-		algorithm_version: 3,
+		algorithm_version: 4,
 		...snapshot.payload,
 	} );
 }
