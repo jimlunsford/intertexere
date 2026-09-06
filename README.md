@@ -65,3 +65,5 @@ The initial roadmap is:
 ## License
 
 Intertexere is licensed under the GNU Affero General Public License version 3 or later (`AGPL-3.0-or-later`). See [LICENSE](LICENSE) for the complete license text.
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled third-party licensing, attribution, and corresponding-source directions.
