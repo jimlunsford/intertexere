@@ -232,3 +232,5 @@ Schema remains version 2. 0.5 requires no migration, table, transient, option, i
 ## Independent review gate
 
 Implementation used `feature/0.5-link-insertion`, passed the complete three-layer WordPress 7.1 and PHP matrix, and received full-diff independent review before merge. Milestone 0.6 consumes only normally saved graph state and does not expand insertion authority. See [Site Link Audit](SITE-LINK-AUDIT.md).
+
+The 0.6.2 algorithm-4 selector removes shared-heading-only authority from both direct phrases and overlap fallback. Fresh deterministic insertion validation reruns this current candidate set, so a forged or previously unique heading that is now shared fails closed. Legitimate title and nonshared heading alternates retain the existing one-click, one-mutation, unsaved insertion path. Analysis response contract remains 2 and insertion-validation contract remains 1.

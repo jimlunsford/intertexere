@@ -12,6 +12,6 @@
       }
     ]
   },
-  "canonical": "{\"algorithm_version\":3,\"post_id\":0,\"post_type\":\"post\",\"title\":\"Title\u2028Café / slash \\\"quote\\\" \\\\ backslash\\ncontrol\\ttext\",\"taxonomies\":{},\"units\":[{\"client_id\":\"shared-unicode-fixture\",\"block_name\":\"core/paragraph\",\"markup\":\"<!-- wp:paragraph --><p>Line\u2028separator and paragraph\u2029separator. 普通 Unicode 😀 emoji / \\\"quotes\\\" \\\\ backslash.\\u0001</p><!-- /wp:paragraph -->\"}]}",
-  "sha256": "84542029351a1b112e21a13ce08e494fbce6ab0dcb63a38e511b4a072b7929c3"
+  "canonical": "{\"algorithm_version\":4,\"post_id\":0,\"post_type\":\"post\",\"title\":\"Title\u2028Café / slash \\\"quote\\\" \\\\ backslash\\ncontrol\\ttext\",\"taxonomies\":{},\"units\":[{\"client_id\":\"shared-unicode-fixture\",\"block_name\":\"core/paragraph\",\"markup\":\"<!-- wp:paragraph --><p>Line\u2028separator and paragraph\u2029separator. 普通 Unicode 😀 emoji / \\\"quotes\\\" \\\\ backslash.\\u0001</p><!-- /wp:paragraph -->\"}]}",
+  "sha256": "35ce90952310ccfc99a3404c3acad28626dd4c6d36544de387058ca579435d85"
 }

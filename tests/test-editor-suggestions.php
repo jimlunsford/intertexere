@@ -311,7 +311,7 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertSame( $response['analysis_id'], $location['analysis_id'] );
 		$this->assertSame( 64, strlen( $location['block_text_hash'] ) );
 		$this->assertSame( 2, $response['contract_version'] );
-		$this->assertSame( 3, $response['algorithm_version'] );
+		$this->assertSame( 4, $response['algorithm_version'] );
 		$this->assertCount( 2, $response['suggestions'][0]['location_candidates'] );
 	}
 
@@ -479,6 +479,137 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 
 		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
 		$this->assertSame( 'repair the runway', $response['suggestions'][0]['location']['anchor_text'] );
+	}
+
+	/** @dataProvider shared_heading_cases */
+	public function test_shared_headings_never_authorize_locations( array $titles, array $headings, string $draft_text ): void {
+		list( $payload, $targets ) = $this->heading_fixture( $titles, $headings, $draft_text );
+		$first = Editor_Suggestions::analyze( $payload );
+		$second = Editor_Suggestions::analyze( $payload );
+		$this->assertSame( $first['suggestions'], $second['suggestions'] );
+		$this->assertCount( count( $targets ), $first['suggestions'] );
+		foreach ( $first['suggestions'] as $suggestion ) {
+			$this->assertSame( array(), $suggestion['location_candidates'] );
+			$this->assertNull( $suggestion['location'] );
+			$this->assertSame( 'no-specific-phrase', $suggestion['location_status'] );
+		}
+	}
+
+	public function shared_heading_cases(): array {
+		$series = array( 'Discipline Dispatch: Keep Moving', 'Discipline Dispatch: Keep Swinging' );
+		$unrelated = array( 'River Navigation', 'Mountain Equipment' );
+		return array(
+			'production pair' => array( $series, array( array( 'New Here?' ), array( 'New Here?' ) ), 'New Here?' ),
+			'generic pair and overlap bypass' => array( $unrelated, array( array( 'Getting Started' ), array( 'Getting Started' ) ), 'Getting Started' ),
+			'three destinations' => array( array_merge( $unrelated, array( 'Desert Survival' ) ), array( array( 'Getting Started' ), array( 'Getting Started' ), array( 'Getting Started' ) ), 'Getting Started' ),
+			'case' => array( $unrelated, array( array( 'GETTING STARTED' ), array( 'getting started' ) ), 'Getting Started' ),
+			'punctuation' => array( $unrelated, array( array( 'Getting: Started!' ), array( 'Getting - Started?' ) ), 'Getting Started' ),
+			'whitespace' => array( $unrelated, array( array( " Getting  Started " ), array( "Getting\t\nStarted" ) ), 'Getting Started' ),
+		);
+	}
+
+	public function test_unique_heading_full_title_and_suffix_survive_shared_heading_rejection(): void {
+		list( $payload, $targets ) = $this->heading_fixture(
+			array( 'Field Notes: River Navigation', 'Mountain Equipment' ),
+			array( array( 'Getting Started', 'Repair the Runway' ), array( 'Getting Started' ) ),
+			'Getting Started. Field Notes: River Navigation. river navigation. repair the runway.'
+		);
+		$response = Editor_Suggestions::analyze( $payload );
+		$by_id = array_column( $response['suggestions'], null, 'target_post_id' );
+		$anchors = array_column( $by_id[ $targets[0] ]['location_candidates'], 'anchor_text' );
+		$this->assertContains( 'Field Notes: River Navigation', $anchors );
+		$this->assertContains( 'river navigation', $anchors );
+		$this->assertContains( 'repair the runway', $anchors );
+		$this->assertNotContains( 'Getting Started', $anchors );
+		$this->assertSame( array(), $by_id[ $targets[1] ]['location_candidates'] );
+	}
+
+	public function test_shared_heading_terms_do_not_erase_independent_title_overlap_evidence(): void {
+		list( $payload, $targets ) = $this->heading_fixture(
+			array( 'Getting Started with Navigation', 'Mountain Equipment' ),
+			array( array( 'Getting Started' ), array( 'Getting Started' ) ),
+			'Getting Started'
+		);
+		$response = Editor_Suggestions::analyze( $payload );
+		$by_id = array_column( $response['suggestions'], null, 'target_post_id' );
+		// No full title or suffix matches: these terms have independent title
+		// authority for the first destination, but none for the second.
+		$this->assertSame( 'Getting Started', $by_id[ $targets[0] ]['location']['anchor_text'] );
+		$this->assertSame( array(), $by_id[ $targets[1] ]['location_candidates'] );
+	}
+
+	public function test_heading_repetition_within_one_destination_is_not_cross_destination_sharing(): void {
+		list( $payload, $targets ) = $this->heading_fixture(
+			array( 'River Navigation', 'Mountain Equipment' ),
+			array( array( 'Repair the Runway', 'Repair the Runway' ), array( 'Getting Started' ) ),
+			'repair the runway'
+		);
+		$response = Editor_Suggestions::analyze( $payload );
+		$by_id = array_column( $response['suggestions'], null, 'target_post_id' );
+		$this->assertSame( 'repair the runway', $by_id[ $targets[0] ]['location']['anchor_text'] );
+	}
+
+	public function test_shared_heading_context_includes_relevant_candidates_below_the_result_cut(): void {
+		$titles = array( 'Alpha Navigation' );
+		$headings = array( array( 'Getting Started' ) );
+		for ( $index = 0; $index < 9; ++$index ) {
+			$titles[] = 'Middle Equipment ' . $index;
+			$headings[] = array( 'Getting Started' );
+		}
+		$titles[] = 'Zulu Survival';
+		$headings[] = array( 'Getting Started', 'Exclusive Crossing' );
+		$headings[0][] = 'Exclusive Crossing';
+		list( $payload, $targets ) = $this->heading_fixture( $titles, $headings, 'Getting Started. Exclusive Crossing.' );
+		// Keep every candidate's score equal so the final one is below the cut.
+		foreach ( $targets as $target ) {
+			wp_update_post( array( 'ID' => $target, 'post_excerpt' => 'Getting Started. Exclusive Crossing.' ) );
+			Indexer::refresh_post( $target );
+		}
+		$response = Editor_Suggestions::analyze( $payload );
+		$this->assertCount( 10, $response['suggestions'] );
+		$this->assertSame( 11, $response['limits']['candidate_count'] );
+		$this->assertNotContains( $targets[10], array_column( $response['suggestions'], 'target_post_id' ) );
+		$this->assertContains( $targets[0], array_column( $response['suggestions'], 'target_post_id' ) );
+		foreach ( $response['suggestions'] as $suggestion ) {
+			$this->assertSame( array(), $suggestion['location_candidates'] );
+		}
+	}
+
+	public function test_shared_heading_detection_and_location_selection_add_zero_database_queries(): void {
+		list( $payload, $targets ) = $this->heading_fixture(
+			array( 'River Navigation', 'Mountain Equipment' ),
+			array( array( 'Getting Started', 'Repair the Runway' ), array( 'Getting Started' ) ),
+			'Getting Started. repair the runway.'
+		);
+		$records = Indexer::get_records( $targets );
+		$target = get_post( $targets[0] );
+		$units = $this->call_private( 'parse_units', array( Editor_Suggestions::validate_payload( $payload ) ) )['text_units'];
+		// Warm Core title/locale filters before measuring the pure location pass.
+		$this->call_private( 'target_title_text', array( $target ) );
+		$before = get_num_queries();
+		$shared = $this->call_private( 'shared_heading_phrases', array( array_values( $records ) ) );
+		$locations = $this->call_private( 'find_locations', array( $target, $records[ $target->ID ], $units, 'draft', 'analysis', array( $target->post_title ), $shared ) );
+		$this->assertSame( $before, get_num_queries() );
+		$this->assertSame( array( 'getting started' => true ), $shared );
+		$this->assertSame( 'repair the runway', $locations['candidates'][0]['anchor_text'] );
+	}
+
+	private function heading_fixture( array $titles, array $headings, string $draft_text ): array {
+		$categories = array( self::factory()->category->create(), self::factory()->category->create() );
+		$targets = array();
+		foreach ( $titles as $index => $title ) {
+			$content = '';
+			foreach ( $headings[ $index ] as $heading ) {
+				$content .= '<!-- wp:heading --><h2>' . esc_html( $heading ) . '</h2><!-- /wp:heading -->';
+			}
+			$target = $this->create_target( $title, $content );
+			wp_set_post_categories( $target, $categories );
+			Indexer::refresh_post( $target );
+			$targets[] = $target;
+		}
+		$payload = $this->payload( 0, 'Discipline Dispatch: Protect the Floor', array( $this->paragraph( $draft_text ) ) );
+		$payload['taxonomies'] = array( 'category' => $categories );
+		return array( $payload, $targets );
 	}
 
 	public function test_exact_mapping_preserves_case_entities_unicode_formatting_whitespace_and_line_breaks(): void {

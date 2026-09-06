@@ -61,12 +61,12 @@ describe( 'asynchronous request state', () => {
 		const expected = {
 			draftHash: 'draft',
 			contractVersion: 2,
-			algorithmVersion: 3,
+			algorithmVersion: 4,
 		};
 		const response = {
 			draft_hash: 'draft',
 			contract_version: 2,
-			algorithm_version: 3,
+			algorithm_version: 4,
 			suggestions: [],
 		};
 		expect( isCurrentAnalysisResponse( response, expected ) ).toBe( true );
@@ -74,6 +74,7 @@ describe( 'asynchronous request state', () => {
 			[ 'draft_hash', 'old-draft' ],
 			[ 'contract_version', 1 ],
 			[ 'algorithm_version', 1 ],
+			[ 'algorithm_version', 3 ],
 			[ 'suggestions', null ],
 		] ) {
 			expect(

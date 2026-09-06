@@ -29,7 +29,7 @@ Specific API usage is verified against the pinned WordPress 7.1 runtime and Core
 
 ## Development Status
 
-Milestones 0.1 through 0.6 are implemented. The 0.6.1 maintenance patch adds bounded, insertion-aware suggestion locations, destination-specific anchor selection, and precise fail-safe read-only explanations. Plugin version is 0.6.1 and schema remains version 2.
+Milestones 0.1 through 0.6 are implemented. The 0.6.1 maintenance patch adds bounded, insertion-aware suggestion locations, destination-specific anchor selection, and precise fail-safe read-only explanations. The 0.6.2 maintenance correction rejects shared boilerplate headings as insertion evidence while preserving destination-specific titles and unique headings. Plugin version is 0.6.2 and schema remains version 2.
 
 The initial roadmap is:
 

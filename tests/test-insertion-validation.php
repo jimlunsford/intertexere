@@ -357,6 +357,54 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
 	}
 
+	public function test_fresh_validation_rejects_shared_heading_and_accepts_unique_alternate(): void {
+		$shared = '<!-- wp:heading --><h2>New Here?</h2><!-- /wp:heading -->';
+		wp_update_post( array( 'ID' => $this->target_id, 'post_content' => $shared . '<!-- wp:heading --><h2>Repair the Runway</h2><!-- /wp:heading -->' ) );
+		$other = self::factory()->post->create( array( 'post_status' => 'publish', 'post_title' => 'Mountain Equipment', 'post_content' => $shared ) );
+		$categories = array( self::factory()->category->create(), self::factory()->category->create() );
+		foreach ( array( $this->target_id, $other ) as $target ) {
+			wp_set_post_categories( $target, $categories );
+			Indexer::refresh_post( $target );
+		}
+		$this->draft = $this->draft_with_markup( '<!-- wp:paragraph --><p>New Here? We repair the runway before departure.</p><!-- /wp:paragraph -->' );
+		$this->draft['taxonomies'] = array( 'category' => $categories );
+		$this->refresh_analysis();
+		$by_id = array_column( $this->analysis['suggestions'], null, 'target_post_id' );
+		$this->assertSame( 'repair the runway', $by_id[ $this->target_id ]['location']['anchor_text'] );
+		$this->assertSame( array(), $by_id[ $other ]['location_candidates'] );
+		$request = $this->request_payload();
+		$request['anchor']['exact_text'] = 'New Here?';
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
+		$request['target_post_id'] = $other;
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
+		$request['target_post_id'] = $this->target_id;
+		$request['anchor']['exact_text'] = 'repair the runway';
+		$result = Insertion_Validation::validate( $request );
+		$this->assertIsArray( $result );
+		$this->assertSame( 'repair the runway', $result['anchor']['exact_text'] );
+		$this->assertSame( get_permalink( $this->target_id ), $result['current_permalink'] );
+	}
+
+	public function test_previously_unique_heading_is_rejected_when_fresh_analysis_finds_it_shared(): void {
+		$heading = '<!-- wp:heading --><h2>Getting Started</h2><!-- /wp:heading -->';
+		wp_update_post( array( 'ID' => $this->target_id, 'post_content' => $heading ) );
+		$other = self::factory()->post->create( array( 'post_status' => 'publish', 'post_title' => 'Mountain Equipment', 'post_content' => '<p>Unrelated equipment details.</p>' ) );
+		$categories = array( self::factory()->category->create(), self::factory()->category->create() );
+		foreach ( array( $this->target_id, $other ) as $target ) {
+			wp_set_post_categories( $target, $categories );
+			Indexer::refresh_post( $target );
+		}
+		$this->draft = $this->draft_with_markup( '<!-- wp:paragraph --><p>Getting Started</p><!-- /wp:paragraph -->' );
+		$this->draft['taxonomies'] = array( 'category' => $categories );
+		$this->refresh_analysis();
+		$request = $this->request_payload();
+		$request['anchor']['exact_text'] = 'Getting Started';
+		$this->assertIsArray( Insertion_Validation::validate( $request ) );
+		wp_update_post( array( 'ID' => $other, 'post_content' => $heading ) );
+		Indexer::refresh_post( $other );
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
+	}
+
 	public function test_repeated_unicode_anchor_occurrence_is_exact(): void {
 		$this->draft = $this->draft_with_markup(
 			'<!-- wp:paragraph --><p>🙂 Insertion Target Alpha, then Insertion Target Alpha.</p><!-- /wp:paragraph -->'

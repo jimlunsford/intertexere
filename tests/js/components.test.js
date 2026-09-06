@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { inspectSuggestionInsertion } from '../../src/editor/insertion';
 import {
 	AIControls,
 	AnalysisBody,
@@ -32,6 +33,7 @@ jest.mock( '@wordpress/components', () => {
 } );
 jest.mock( '@wordpress/icons', () => ( { external: 'external' } ) );
 jest.mock( '@wordpress/i18n', () => ( { __: ( value ) => value } ) );
+jest.mock( '@wordpress/blocks', () => ( { serialize: jest.fn() } ) );
 
 const suggestion = {
 	target_post_id: 14,
@@ -48,6 +50,59 @@ const suggestion = {
 };
 
 describe( 'analysis presentation', () => {
+	test( 'a server-rejected shared heading stays read-only with View and Dismiss', () => {
+		const readOnly = {
+			...suggestion,
+			location: null,
+			location_candidates: [],
+			location_status: 'no-specific-phrase',
+		};
+		const onInsert = jest.fn();
+		const onDismiss = jest.fn();
+		const getBlock = jest.fn( () => ( {
+			name: 'core/heading',
+			attributes: { content: 'New Here?' },
+		} ) );
+		const availability = inspectSuggestionInsertion(
+			readOnly,
+			null,
+			getBlock
+		);
+		expect( availability ).toMatchObject( {
+			evidence: null,
+			location: null,
+			reason: 'no-specific-phrase',
+		} );
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ readOnly ] } }
+				suggestions={ [ readOnly ] }
+				stale={ false }
+				onDismiss={ onDismiss }
+				insertionEvidence={ new Map() }
+				insertionAvailability={ new Map( [ [ 14, availability ] ] ) }
+				insertionStates={ {} }
+				onInsert={ onInsert }
+			/>
+		);
+		expect(
+			screen.queryByRole( 'button', { name: 'Insert Link' } )
+		).toBeNull();
+		expect( screen.getByRole( 'link', { name: /View/ } ) ).toBeVisible();
+		expect(
+			screen.getByText( /No destination-specific phrase/ )
+		).toBeVisible();
+		expect(
+			screen.queryByText( /Proposed phrase:|Draft context:|New Here/ )
+		).toBeNull();
+		fireEvent.click( screen.getByRole( 'button', { name: 'Dismiss' } ) );
+		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
+		expect( onInsert ).not.toHaveBeenCalled();
+		expect( getBlock ).not.toHaveBeenCalled();
+	} );
+
 	test.each( [
 		[ 'no-specific-phrase', /No destination-specific phrase/ ],
 		[ 'unsupported-block', /block Intertexere does not edit/ ],

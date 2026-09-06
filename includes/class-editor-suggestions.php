@@ -9,7 +9,7 @@ namespace Intertexere;
 
 final class Editor_Suggestions {
 	public const CONTRACT_VERSION = 2;
-	public const ALGORITHM_VERSION = 3;
+	public const ALGORITHM_VERSION = 4;
 	public const MAX_PAYLOAD_BYTES = 262144;
 	public const MAX_UNITS = 500;
 	public const MAX_UNIT_BYTES = 16384;
@@ -191,8 +191,11 @@ final class Editor_Suggestions {
 			}
 		);
 
-		$suggestions = array_slice( $suggestions, 0, self::MAX_RESULTS );
 		$location_started = microtime( true );
+		// Use every relevant destination in the already-loaded, at-most-100
+		// candidate set, including those below the ten-result display cut.
+		$shared_headings = self::shared_heading_phrases( array_column( $suggestions, '_record' ) );
+		$suggestions = array_slice( $suggestions, 0, self::MAX_RESULTS );
 		$title_context = array_merge( array( $validated['title'] ), array_column( $suggestions, 'target_title' ) );
 		foreach ( $suggestions as &$suggestion ) {
 			$location_result = self::find_locations(
@@ -201,7 +204,8 @@ final class Editor_Suggestions {
 				$parsed['text_units'],
 				$draft_hash,
 				$analysis_id,
-				$title_context
+				$title_context,
+				$shared_headings
 			);
 			$suggestion['location']            = $location_result['candidates'][0] ?? null;
 			$suggestion['location_candidates'] = $location_result['candidates'];
@@ -917,7 +921,7 @@ final class Editor_Suggestions {
 	 * @param array<int, array<string, mixed>> $text_units Parsed text units.
 	 * @return array<string, mixed>|null
 	 */
-	private static function find_locations( \WP_Post $target, array $record, array $text_units, string $draft_hash, string $analysis_id, array $title_context ): array {
+	private static function find_locations( \WP_Post $target, array $record, array $text_units, string $draft_hash, string $analysis_id, array $title_context, array $shared_headings ): array {
 		$title         = self::target_title_text( $target );
 		$generic_terms = self::shared_leading_title_terms( $title, $title_context );
 		$phrases       = array();
@@ -928,23 +932,25 @@ final class Editor_Suggestions {
 			self::add_location_phrase( $phrases, $title_parts[1] );
 		}
 
+		// Preserve title evidence independently: a shared heading must not erase
+		// legitimate title terms, but cannot supply overlap evidence of its own.
+		$specific_headings = array();
 		$headings = json_decode( (string) $record['headings'], true );
 		foreach ( is_array( $headings ) ? $headings : array() as $heading ) {
 			$heading = is_string( $heading ) ? trim( $heading ) : '';
+			if ( isset( $shared_headings[ self::normalize_phrase( $heading ) ] ) ) {
+				continue;
+			}
 			$heading_terms = array_values( array_diff( self::normalize_terms( $heading ), $generic_terms ) );
 			if ( ! empty( $heading_terms ) ) {
 				self::add_location_phrase( $phrases, $heading );
+				$specific_headings[] = $heading;
 			}
 		}
 
 		$specific_terms = array_values(
 			array_diff(
-				array_unique(
-					array_merge(
-						self::normalize_terms( (string) $record['title'] ),
-						self::terms_from_json_strings( (string) $record['headings'] )
-					)
-				),
+				array_unique( array_merge( self::normalize_terms( (string) $record['title'] ), self::normalize_terms( implode( ' ', $specific_headings ) ) ) ),
 				$generic_terms
 			)
 		);
@@ -1001,6 +1007,35 @@ final class Editor_Suggestions {
 			'candidates' => $candidates,
 			'status'     => ! empty( $candidates ) ? 'candidates' : ( $unsupported_match ? 'unsupported-block' : 'no-specific-phrase' ),
 		);
+	}
+
+	/**
+	 * Count normalized heading phrases once per relevant destination record.
+	 * This pure in-memory pass uses the existing bounded candidate retrieval;
+	 * repetition within one destination alone does not make a heading shared.
+	 *
+	 * @param array<int,array<string,mixed>> $records Relevant candidate records.
+	 * @return array<string,true> Headings present in more than one destination.
+	 */
+	private static function shared_heading_phrases( array $records ): array {
+		$counts = array();
+		$shared = array();
+		foreach ( $records as $record ) {
+			$headings = json_decode( (string) $record['headings'], true );
+			$seen = array();
+			foreach ( is_array( $headings ) ? $headings : array() as $heading ) {
+				$key = is_string( $heading ) ? self::normalize_phrase( $heading ) : '';
+				if ( '' === $key || isset( $seen[ $key ] ) ) {
+					continue;
+				}
+				$seen[ $key ] = true;
+				$counts[ $key ] = ( $counts[ $key ] ?? 0 ) + 1;
+				if ( $counts[ $key ] > 1 ) {
+					$shared[ $key ] = true;
+				}
+			}
+		}
+		return $shared;
 	}
 
 	private static function add_location_phrase( array &$phrases, string $phrase ): void {

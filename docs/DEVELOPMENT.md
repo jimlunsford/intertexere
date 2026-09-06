@@ -152,6 +152,10 @@ The 0.6.1 maintenance patch changes deterministic location selection and its res
 
 The PHP matrix records query count, total analysis latency, location-selection latency, response size, and maximum location candidates. Jest records bounded RichText inspection and the existing maximum-unit mutation fixture. The WordPress 7.1 iframe suite remains the authority for the button, exact mutation, canonical permalink, dirty state, Undo, Redo, and lack of automatic save or AI. Schema remains version 2 and no persistent cache or location record is permitted.
 
+### 0.6.2 shared-heading maintenance boundary
+
+Algorithm 4 rejects normalized heading phrases shared by more than one relevant bounded destination, including candidates below the display cut. Direct-heading and overlap evidence must use the same rejection rule, preserving independent legitimate title terms. Count each destination once using its already-loaded index record; no location-time database query or new persistence is permitted. Keep schema 2, analysis contract 2, insertion-validation contract 1, all historical regressions, and the algorithm-3 eight-location reservoir. The real iframe regression must leave a destination with no specific phrase read-only while another unique safe phrase still inserts explicitly, remains unsaved, and supports Undo/Redo.
+
 ## 10. Content Mutation Requires Stronger Testing
 
 Any change that can modify post content must test at least:

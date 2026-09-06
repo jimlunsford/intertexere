@@ -937,6 +937,177 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			.toBe( inserted );
 	} );
 
+	test( 'rejects shared headings while a unique heading still inserts once without saving', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		await requestUtils.rest( {
+			path: '/intertexere-e2e/v1/mode',
+			method: 'POST',
+			data: { mode: 'disabled' },
+		} );
+		const categories = [];
+		for ( const name of [ 'Shared heading', 'Specific evidence' ] ) {
+			const category = await requestUtils.rest( {
+				path: '/wp/v2/categories',
+				method: 'POST',
+				data: { name: `${ name } ${ Date.now() }` },
+			} );
+			categories.push( category.id );
+		}
+		const titles = [
+			'Discipline Dispatch: Keep Moving',
+			'Discipline Dispatch: Keep Swinging',
+			'Discipline Dispatch: Power Was Yours',
+		];
+		const shared =
+			'<!-- wp:heading --><h2 class="wp-block-heading">New Here?</h2><!-- /wp:heading -->';
+		const targets = [];
+		for ( const [ index, title ] of titles.entries() ) {
+			targets.push(
+				await requestUtils.createPost( {
+					title,
+					content:
+						shared +
+						( index === 1
+							? '<!-- wp:heading --><h2 class="wp-block-heading">Repair the Runway</h2><!-- /wp:heading -->'
+							: '' ),
+					status: 'publish',
+					categories,
+				} )
+			);
+		}
+		const sourceContent =
+			shared +
+			'<!-- wp:paragraph --><p>We repair the runway before departure.</p><!-- /wp:paragraph -->';
+		expect( sourceContent.toLowerCase() ).not.toContain( 'keep moving' );
+		const source = await requestUtils.createPost( {
+			title: 'Discipline Dispatch: Protect the Floor',
+			content: sourceContent,
+			status: 'draft',
+			categories,
+		} );
+		await admin.editPost( source.id );
+		const requests = { analyze: 0, ai: 0, validation: 0, save: 0 };
+		page.on( 'request', ( request ) => {
+			if ( request.method() === 'GET' ) {
+				return;
+			}
+			const url = request.url();
+			if ( new URL( url ).pathname.endsWith( '/editor-suggestions' ) ) {
+				requests.analyze += 1;
+			} else if ( url.includes( '/ai-enhance' ) ) {
+				requests.ai += 1;
+			} else if ( url.includes( '/validate-insertion' ) ) {
+				requests.validation += 1;
+			} else if ( url.includes( `/wp/v2/posts/${ source.id }` ) ) {
+				requests.save += 1;
+			}
+		} );
+		await openSidebar( page );
+		expect( requests ).toEqual( {
+			analyze: 0,
+			ai: 0,
+			validation: 0,
+			save: 0,
+		} );
+		const responsePromise = page.waitForResponse(
+			( response ) =>
+				new URL( response.url() ).pathname.endsWith(
+					'/editor-suggestions'
+				) && response.request().method() === 'POST'
+		);
+		await page.getByRole( 'button', { name: 'Analyze draft' } ).click();
+		const analysis = await ( await responsePromise ).json();
+		expect( analysis.algorithm_version ).toBe( 4 );
+		for ( const target of targets ) {
+			const suggestion = analysis.suggestions.find(
+				( item ) => item.target_post_id === target.id
+			);
+			expect( suggestion ).toBeDefined();
+			expect(
+				suggestion.location_candidates.every(
+					( location ) => ! /new\s+here/i.test( location.anchor_text )
+				)
+			).toBe( true );
+		}
+		for ( const index of [ 0, 2 ] ) {
+			const card = page
+				.getByRole( 'heading', { name: titles[ index ], exact: true } )
+				.locator( '..' );
+			await expect(
+				card.getByText( /No destination-specific phrase/ )
+			).toBeVisible();
+			await expect(
+				card.getByRole( 'button', { name: 'Insert Link' } )
+			).toHaveCount( 0 );
+			await expect(
+				card.getByRole( 'link', { name: /View/ } )
+			).toBeVisible();
+			await expect(
+				card.getByRole( 'button', { name: 'Dismiss' } )
+			).toBeVisible();
+			await expect(
+				card.getByText( /Proposed phrase:|Draft context:|New Here/ )
+			).toHaveCount( 0 );
+			const suggestion = analysis.suggestions.find(
+				( item ) => item.target_post_id === targets[ index ].id
+			);
+			expect( suggestion.location_candidates ).toEqual( [] );
+			expect( suggestion.location ).toBeNull();
+			expect( suggestion.location_status ).toBe( 'no-specific-phrase' );
+		}
+		const uniqueCard = page
+			.getByRole( 'heading', { name: titles[ 1 ], exact: true } )
+			.locator( '..' );
+		await expect(
+			uniqueCard.getByText( '“repair the runway”' )
+		).toBeVisible();
+		await expect(
+			uniqueCard.getByRole( 'button', { name: 'Insert Link' } )
+		).toBeVisible();
+		const before = await editor.getEditedPostContent();
+		await uniqueCard.getByRole( 'button', { name: 'Insert Link' } ).click();
+		await expect( uniqueCard.getByRole( 'status' ) ).toContainText(
+			'Link inserted in the unsaved draft'
+		);
+		const inserted = await editor.getEditedPostContent();
+		expect( inserted ).toBe(
+			before.replace(
+				'repair the runway',
+				`<a href="${ targets[ 1 ].link }">repair the runway</a>`
+			)
+		);
+		expect(
+			await page.evaluate( () =>
+				window.wp.data.select( 'core/editor' ).isEditedPostDirty()
+			)
+		).toBe( true );
+		const persisted = await requestUtils.rest( {
+			path: `/wp/v2/posts/${ source.id }`,
+			params: { context: 'edit' },
+		} );
+		expect( persisted.content.raw ).toBe( sourceContent );
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'core/editor' ).undo()
+		);
+		await expect.poll( () => editor.getEditedPostContent() ).toBe( before );
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'core/editor' ).redo()
+		);
+		await expect
+			.poll( () => editor.getEditedPostContent() )
+			.toBe( inserted );
+		expect( requests ).toEqual( {
+			analyze: 1,
+			ai: 0,
+			validation: 1,
+			save: 0,
+		} );
+	} );
+
 	test( 'routes an AI-kept exact anchor through the same insertion validation', async ( {
 		admin,
 		editor,
