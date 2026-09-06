@@ -963,7 +963,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 			'Discipline Dispatch: Power Was Yours',
 		];
 		const shared =
-			'<!-- wp:heading --><h2 class="wp-block-heading">New Here?</h2><!-- /wp:heading -->';
+			'<!-- wp:heading -->\n<h2 class="wp-block-heading">New Here?</h2>\n<!-- /wp:heading -->';
 		const targets = [];
 		for ( const [ index, title ] of titles.entries() ) {
 			targets.push(
@@ -981,7 +981,7 @@ test.describe( 'Intertexere read-only editor suggestions', () => {
 		}
 		const sourceContent =
 			shared +
-			'<!-- wp:paragraph --><p>We repair the runway before departure.</p><!-- /wp:paragraph -->';
+			'\n\n<!-- wp:paragraph -->\n<p>We repair the runway before departure.</p>\n<!-- /wp:paragraph -->';
 		expect( sourceContent.toLowerCase() ).not.toContain( 'keep moving' );
 		const source = await requestUtils.createPost( {
 			title: 'Discipline Dispatch: Protect the Floor',
