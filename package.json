@@ -2,6 +2,7 @@
   "name": "intertexere",
   "version": "0.6.1",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "description": "Read-only deterministic and optional AI-enhanced internal-link suggestions for the WordPress Block Editor.",
   "engines": {
     "node": ">=22.13.0 <23",

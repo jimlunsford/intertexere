@@ -6,7 +6,8 @@
  * Requires at least: 7.1
  * Requires PHP: 7.4
  * Author: Jim Lunsford
- * License: GPL-2.0-or-later
+ * License: AGPL-3.0-or-later
+ * License URI: https://www.gnu.org/licenses/agpl-3.0.html
  * Text Domain: intertexere
  */
 
