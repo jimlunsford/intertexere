@@ -16,6 +16,7 @@ import {
 	aiCacheKey,
 	createRequestGate,
 	isCurrentAIResponse,
+	isCurrentAnalysisResponse,
 	visibleSuggestions,
 } from './request-state';
 import { buildSnapshot, clientHashInput, sha256 } from './snapshot';
@@ -25,6 +26,7 @@ import {
 	commitValidatedLink,
 	contentIdentity,
 	isCurrentValidationResponse,
+	inspectSuggestionInsertion,
 	resolveInsertionEvidence,
 	richTextPlainText,
 } from './insertion';
@@ -227,25 +229,35 @@ export function EditorSuggestionsSidebar() {
 							aiEvaluations.get( right.target_post_id ).rank
 					)
 			: deterministicShown;
-	const insertionEvidence = useMemo( () => {
-		const evidence = new Map();
+	const insertionAvailability = useMemo( () => {
+		const availability = new Map();
 		if ( ! snapshot || ! draftLinks ) {
-			return evidence;
+			return availability;
 		}
 		shown.forEach( ( suggestion ) => {
-			const resolved = resolveInsertionEvidence(
-				suggestion,
-				enhancedMode
-					? aiEvaluations.get( suggestion.target_post_id )
-					: null,
-				( clientId ) => select( blockEditorStore ).getBlock( clientId )
+			availability.set(
+				suggestion.target_post_id,
+				inspectSuggestionInsertion(
+					suggestion,
+					enhancedMode
+						? aiEvaluations.get( suggestion.target_post_id )
+						: null,
+					( clientId ) =>
+						select( blockEditorStore ).getBlock( clientId )
+				)
 			);
-			if ( resolved ) {
-				evidence.set( suggestion.target_post_id, resolved );
+		} );
+		return availability;
+	}, [ shown, enhancedMode, aiEvaluations, snapshot, draftLinks ] );
+	const insertionEvidence = useMemo( () => {
+		const evidence = new Map();
+		insertionAvailability.forEach( ( availability, targetId ) => {
+			if ( availability.evidence ) {
+				evidence.set( targetId, availability.evidence );
 			}
 		} );
 		return evidence;
-	}, [ shown, enhancedMode, aiEvaluations, snapshot, draftLinks ] );
+	}, [ insertionAvailability ] );
 
 	useEffect( () => {
 		controller.current?.abort();
@@ -373,10 +385,16 @@ export function EditorSuggestionsSidebar() {
 			) {
 				return;
 			}
-			if ( response.draft_hash !== draftHash ) {
+			if (
+				! isCurrentAnalysisResponse( response, {
+					draftHash,
+					contractVersion: settings.analysis.contractVersion,
+					algorithmVersion: settings.analysis.algorithmVersion,
+				} )
+			) {
 				throw new Error(
 					__(
-						'Draft analysis returned for a different editor state.',
+						'Draft analysis returned an incompatible or stale response.',
 						'intertexere'
 					)
 				);
@@ -800,6 +818,7 @@ export function EditorSuggestionsSidebar() {
 						}
 						enhancedMode={ enhancedMode }
 						insertionEvidence={ insertionEvidence }
+						insertionAvailability={ insertionAvailability }
 						insertionStates={ insertionStates }
 						onInsert={ insertLink }
 						onDismiss={ ( targetId ) =>

@@ -79,6 +79,10 @@ final class Editor_Assets {
 
 		return array(
 			'route'          => '/' . Editor_REST::NAMESPACE . Editor_REST::ROUTE,
+			'analysis'       => array(
+				'contractVersion'  => Editor_Suggestions::CONTRACT_VERSION,
+				'algorithmVersion' => Editor_Suggestions::ALGORITHM_VERSION,
+			),
 			'aiRoute'        => '/' . Editor_REST::NAMESPACE . Editor_REST::AI_ROUTE,
 			'insertionRoute' => '/' . Editor_REST::NAMESPACE . Editor_REST::INSERTION_ROUTE,
 			'insertion'      => array(

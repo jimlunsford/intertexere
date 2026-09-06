@@ -280,6 +280,83 @@ class Intertexere_Insertion_Validation_Test extends WP_UnitTestCase {
 		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
 	}
 
+	public function test_fresh_analysis_authorizes_a_bounded_alternate_but_rejects_an_invented_anchor(): void {
+		$this->draft = $this->draft_with_markup(
+			'<!-- wp:paragraph --><p><a href="https://outside.example/existing/">Insertion Target Alpha</a> then Insertion Target Alpha and Alpha.</p><!-- /wp:paragraph -->'
+		);
+		$this->refresh_analysis();
+		$locations = $this->analysis['suggestions'][0]['location_candidates'];
+		$this->assertCount( 2, $locations );
+		$this->assertSame( 1, $locations[1]['occurrence'] );
+
+		$request = $this->request_payload();
+		$request['anchor']['occurrence'] = 1;
+		$result = Insertion_Validation::validate( $request );
+		$this->assertIsArray( $result );
+		$this->assertSame( 1, $result['anchor']['occurrence'] );
+
+		$request = $this->request_payload();
+		$request['anchor']['exact_text'] = 'and Alpha';
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
+	}
+
+	public function test_fresh_analysis_authorizes_a_later_suffix_after_eight_unsafe_full_titles(): void {
+		$target = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_title'   => 'Discipline Dispatch: Keep Moving',
+				'post_content' => '<!-- wp:paragraph --><p>Keep moving with deliberate action.</p><!-- /wp:paragraph -->',
+			)
+		);
+		Indexer::refresh_post( $target );
+		$links = array();
+		$draft_links = array();
+		for ( $index = 0; $index < 8; ++$index ) {
+			$href = 'https://outside.example/unsafe-' . $index . '/';
+			$links[] = '<a href="' . $href . '">Discipline Dispatch: Keep Moving</a>';
+			$draft_links[] = $href;
+		}
+		$draft = array(
+			'post_id'    => $this->source_id,
+			'post_type'  => 'post',
+			'title'      => 'Discipline Dispatch: Keep Moving',
+			'taxonomies' => array(),
+			'units'      => array(
+				array(
+					'client_id' => 'starvation-paragraph',
+					'block_name'=> 'core/paragraph',
+					'markup'    => '<!-- wp:paragraph --><p>' . implode( ' ', $links ) . ' We keep moving after the unsafe matches.</p><!-- /wp:paragraph -->',
+				),
+			),
+		);
+		$analysis = Editor_Suggestions::analyze( $draft );
+		$suggestion = array_column( $analysis['suggestions'], null, 'target_post_id' )[ $target ];
+		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_LOCATION_CANDIDATES, count( $suggestion['location_candidates'] ) );
+		$this->assertContains( 'keep moving', array_column( $suggestion['location_candidates'], 'anchor_text' ) );
+
+		$request = array(
+			'draft'          => $draft,
+			'analysis_id'    => $analysis['analysis_id'],
+			'target_post_id' => $target,
+			'source_kind'    => 'deterministic',
+			'anchor'         => array(
+				'block_client_id' => 'starvation-paragraph',
+				'block_name'      => 'core/paragraph',
+				'exact_text'      => 'keep moving',
+				'occurrence'      => 0,
+				'unit_key'        => null,
+			),
+			'draft_links'    => $draft_links,
+		);
+		$result = Insertion_Validation::validate( $request );
+		$this->assertIsArray( $result );
+		$this->assertSame( 'keep moving', $result['anchor']['exact_text'] );
+		$this->assertSame( 0, $result['anchor']['occurrence'] );
+
+		$request['anchor']['exact_text'] = 'moving after';
+		$this->assertError( 'intertexere_insertion_stale', Insertion_Validation::validate( $request ) );
+	}
+
 	public function test_repeated_unicode_anchor_occurrence_is_exact(): void {
 		$this->draft = $this->draft_with_markup(
 			'<!-- wp:paragraph --><p>🙂 Insertion Target Alpha, then Insertion Target Alpha.</p><!-- /wp:paragraph -->'

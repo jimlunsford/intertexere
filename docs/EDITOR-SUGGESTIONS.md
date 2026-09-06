@@ -133,19 +133,23 @@ Unresolved draft URLs are not guessed into a target identity. A candidate may on
 
 ## Location and anchor semantics
 
-Location data is advisory and session scoped. A location contains:
+Location data is advisory and session scoped. Each suggestion may contain an ordered set of at most eight location candidates. A candidate contains:
 
 - block client ID and block name;
 - block text hash;
 - an exact visible-text excerpt and surrounding context;
-- an optional exact proposed anchor text;
+- exact proposed anchor text copied from the current draft substring;
 - UTF-8 plaintext start and length within one analysis unit;
 - occurrence index when the same text appears more than once;
 - draft hash and analysis ID.
 
-The anchor finder prefers an exact, contiguous phrase already present in one included unit. It may select a candidate title phrase or the longest stable run of overlapping meaningful terms, with deterministic shortest-location and first-occurrence tie breaking. It does not cross block, table-cell, caption, or incompatible markup boundaries and does not manufacture or rewrite words. If no safe phrase exists, anchor text and offsets are null while the suggestion may still identify the related block or draft-level relationship.
+Semantic analysis and insertion-location selection are separate. All included text units may contribute to relevance, but deterministic insertion candidates come only from the unchanged insertion allowlist: `core/paragraph`, `core/heading`, and `core/list-item` direct `content` attributes. The server maps those attributes without collapsing spaces, maps `<br>` to a line break, decodes entities, and strips compatible inline markup so the proposed exact text can be found in the browser's RichText plain text. If that exact mapping cannot be established, the unit is not proposed for insertion.
 
-Block client IDs are transient editor locators, not durable content identity. The 0.5 insertion layer reparses the current block, verifies canonical draft and direct-content identities, re-resolves the target, and confirms exact text plus occurrence before any mutation. The 0.3 analysis service itself remains read-only.
+The location finder searches deterministically in this order: exact full destination title, destination-specific title suffix, destination-specific heading phrase, then another sufficiently specific contiguous phrase supported by the indexed title or headings. Common leading terms shared by the source or other bounded destination titles are excluded from fallback phrases. This general rule prevents a series or category prefix from becoming the sole anchor for several unrelated destinations and does not contain site-specific series names.
+
+The finder evaluates at most eight ordered phrase tiers across the already bounded draft units. For each phrase tier it retains a bounded first-and-last occurrence reservoir, then reserves one response slot for every nonempty phrase tier. The full-title tier starts with its earliest match, while later destination-specific tiers retain their latest bounded match so an early repeated occurrence class cannot hide a later safe occurrence. Remaining capacity is filled deterministically from retained first and last matches and then editor order. One repeated full-title phrase therefore cannot consume all eight response locations before a later destination-specific suffix or heading tier is represented. The response still contains no more than eight candidates, and the client remains final RichText authority. It does not manufacture words or change the deterministic relevance score. A suggestion with no destination-specific supported match remains useful but read-only, with `location_status` distinguishing no specific phrase from a match found only in an unsupported block.
+
+Block client IDs are transient editor locators, not durable content identity. PHP start and length values are diagnostics, not RichText indices. Exact case-sensitive draft text plus zero-based occurrence is the cross-runtime identity. The 0.5 insertion layer evaluates the ordered candidates against current RichText, selects the first currently safe range, reparses the current block, verifies canonical draft and direct-content identities, re-resolves the target, and confirms the selected exact text plus occurrence before any mutation. The 0.3 analysis service itself remains read-only.
 
 ## Suggestion response contract
 
@@ -153,8 +157,8 @@ The read-only analysis response has this stable shape, with JSON schemas enforce
 
 ```json
 {
-  "contract_version": 1,
-  "algorithm_version": 1,
+  "contract_version": 2,
+  "algorithm_version": 3,
   "analysis_id": "sha256-value",
   "draft_hash": "sha256-value",
   "index_generation": "generation-id",
@@ -181,18 +185,34 @@ The read-only analysis response has this stable shape, with JSON schemas enforce
         "start": 10,
         "length": 21,
         "occurrence": 0
-      }
+      },
+      "location_candidates": [
+        {
+          "block_client_id": "client-id",
+          "block_name": "core/paragraph",
+          "block_text_hash": "sha256-value",
+          "excerpt": "Exact text from the current draft",
+          "anchor_text": "exact existing phrase",
+          "start": 10,
+          "length": 21,
+          "occurrence": 0
+        }
+      ],
+      "location_status": "candidates"
     }
   ],
   "excluded_already_linked_count": 0,
   "limits": {
     "candidate_count": 34,
-    "truncated": false
+    "truncated": false,
+    "max_location_candidates": 8
   }
 }
 ```
 
 Current title, permalink, post type, publication state, and eligibility are resolved from WordPress when the response is built. They are not persisted as a second canonical suggestion record. `already_linked` is false for every returned card because already-linked targets are hard exclusions; the field makes the contract explicit and supports defensive UI behavior. The response reports their aggregate exclusion count without exposing a separate recommendation history.
+
+Contract version 2 adds bounded `location_candidates` and `location_status`. `location` remains the first ordered candidate for compatibility with the existing advisory AI context and is null when the candidate list is empty. Algorithm version 3 binds draft hashes, analysis IDs, and session caches to the stratified insertion-aware selector. The client rejects a response with a different contract or algorithm version.
 
 ## Server boundary and security
 
@@ -230,7 +250,7 @@ The endpoint does not save a post, update metadata, write graph or index rows, e
 
 ## Editor UI and dismissal
 
-The sidebar has restrained states: ready, analyzing, results, no suggestions, stale, unavailable, and error. Suggestion cards show the current destination title and URL, deterministic reason, score labeled as deterministic relevance, proposed anchor or location when available, and a clear **Not linked from this draft** state.
+The sidebar has restrained states: ready, analyzing, results, no suggestions, stale, unavailable, and error. Suggestion cards show the current destination title and URL, deterministic reason, score labeled as deterministic relevance, the first currently insertable proposed location when available, and a clear **Not linked from this draft** state. A read-only card distinguishes no destination-specific phrase, unsupported block, existing link, another-link overlap, RichText replacement overlap, changed phrase or block, unsafe RichText mapping, and an unknown unavailable fallback. Those explanations never grant insertion authority.
 
 Actions are:
 
@@ -256,4 +276,4 @@ Core WordPress search is intentionally used as the initial bounded lexical-retri
 
 The 0.3 editor source is built with Node.js 22.13.0 and exact development-package versions recorded in `package.json` and `package-lock.json`. The committed production bundle is generated by `@wordpress/scripts` and includes its WordPress dependency manifest plus left-to-right and right-to-left styles.
 
-The implementation retains schema version 2. It adds no migration, suggestion table, draft table, dismissal table, transient cache, or persistent retrieval store. PHP integration tests enforce the 256 KiB payload, 500-unit, 16 KiB unit, 64-term, 8-phrase, 100-candidate, 10-result, and score-25 boundaries. The large-fixture test records request query count and elapsed time and fails if the request exceeds 12 database queries or 3 seconds in the WordPress test environment.
+The implementation retains schema version 2. It adds no migration, suggestion table, draft table, dismissal table, transient cache, or persistent retrieval store. PHP integration tests enforce the 256 KiB payload, 500-unit, 16 KiB unit, 64-term, 8-phrase, 100-candidate, 10-result, 8-location, and score-25 boundaries. The large-fixture test records request query count, total latency, location-selection latency, response bytes, and the maximum location count, and fails if the request exceeds 12 database queries or 3 seconds in the WordPress test environment.

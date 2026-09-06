@@ -113,19 +113,6 @@ export function findExactOccurrence( text, exactText, occurrence ) {
 	return null;
 }
 
-function exactOccurrences( text, exactText ) {
-	const ranges = [];
-	let occurrence = 0;
-	while ( true ) {
-		const range = findExactOccurrence( text, exactText, occurrence );
-		if ( ! range ) {
-			return ranges;
-		}
-		ranges.push( { ...range, occurrence } );
-		occurrence += 1;
-	}
-}
-
 function contentValue( content ) {
 	if ( content instanceof RichTextData ) {
 		return {
@@ -187,6 +174,8 @@ function linkFormatsAt( value, index ) {
 function linkOverlapState( value, range, currentPermalink = '' ) {
 	let hasLink = false;
 	let exactSameTarget = Boolean( currentPermalink );
+	let exactOneLink = true;
+	let firstLink = null;
 	for ( let index = range.start; index < range.end; index += 1 ) {
 		const links = linkFormatsAt( value, index );
 		if ( links.length ) {
@@ -199,16 +188,25 @@ function linkOverlapState( value, range, currentPermalink = '' ) {
 		) {
 			exactSameTarget = false;
 		}
+		if ( links.length !== 1 ) {
+			exactOneLink = false;
+		} else if ( ! firstLink ) {
+			firstLink = formatFingerprint( links[ 0 ] );
+		} else if ( firstLink !== formatFingerprint( links[ 0 ] ) ) {
+			exactOneLink = false;
+		}
 	}
 	if ( ! hasLink ) {
 		return 'clear';
 	}
-	if (
-		exactSameTarget &&
+	const exactBoundary =
 		linkFormatsAt( value, range.start - 1 ).length === 0 &&
-		linkFormatsAt( value, range.end ).length === 0
-	) {
+		linkFormatsAt( value, range.end ).length === 0;
+	if ( exactSameTarget && exactBoundary ) {
 		return 'already-linked';
+	}
+	if ( exactOneLink && exactBoundary ) {
+		return 'linked';
 	}
 	return 'overlap';
 }
@@ -380,65 +378,123 @@ export function commitValidatedLink(
 	return { ...mutation, status: 'inserted' };
 }
 
-export function resolveInsertionEvidence( suggestion, aiEvaluation, getBlock ) {
+export function inspectSuggestionInsertion(
+	suggestion,
+	aiEvaluation,
+	getBlock
+) {
+	const started = globalThis.performance?.now?.() || Date.now();
 	const aiAnchor = aiEvaluation?.anchor?.exact_text
 		? aiEvaluation.anchor
 		: null;
-	const location = suggestion?.location;
-	const source = aiAnchor || location;
-	const clientId = aiAnchor?.block_client_id || location?.block_client_id;
-	const blockName = aiAnchor?.block_name || location?.block_name;
-	const exactText = aiAnchor?.exact_text || location?.anchor_text;
-	if (
-		! source ||
-		! clientId ||
-		! INSERTION_BLOCKS.has( blockName ) ||
-		typeof exactText !== 'string' ||
-		exactText.length === 0
-	) {
-		return null;
+	let locations = [];
+	if ( aiAnchor ) {
+		locations = [
+			{
+				block_client_id: aiAnchor.block_client_id,
+				block_name: aiAnchor.block_name,
+				anchor_text: aiAnchor.exact_text,
+				occurrence: aiAnchor.occurrence,
+				unit_key: aiAnchor.unit_key,
+			},
+		];
+	} else if ( Array.isArray( suggestion?.location_candidates ) ) {
+		locations = suggestion.location_candidates;
+	} else if ( suggestion?.location ) {
+		locations = [ suggestion.location ];
 	}
-
-	const block = getBlock( clientId );
-	if ( ! block || block.name !== blockName ) {
-		return null;
-	}
-	const current = contentValue( block.attributes?.content );
-	if ( ! current ) {
-		return null;
-	}
-
-	let occurrence = aiAnchor?.occurrence;
-	try {
-		const value = create( { html: current.html } );
-		if ( ! aiAnchor ) {
-			const ranges = exactOccurrences( value.text, exactText );
-			const matching = ranges.filter(
-				( range ) =>
-					Array.from( value.text.slice( 0, range.start ) ).length ===
-					location.start
-			);
-			if ( matching.length !== 1 ) {
-				return null;
-			}
-			occurrence = matching[ 0 ].occurrence;
-		}
-		const inspected = inspectInsertionRange( block, exactText, occurrence );
-		if ( inspected.status !== 'ready' ) {
-			return null;
-		}
-	} catch {
-		return null;
-	}
-
-	return {
-		block_client_id: clientId,
-		block_name: blockName,
-		exact_text: exactText,
-		occurrence,
-		unit_key: aiAnchor?.unit_key || null,
-		source_kind: aiAnchor ? 'ai' : 'deterministic',
+	const failures = [];
+	const recordFailure = ( location, reason ) => {
+		failures.push( { location, reason } );
 	};
+
+	for ( const location of locations ) {
+		const clientId = location?.block_client_id;
+		const blockName = location?.block_name;
+		const exactText = location?.anchor_text;
+		const occurrence = location?.occurrence;
+		if (
+			! clientId ||
+			! INSERTION_BLOCKS.has( blockName ) ||
+			typeof exactText !== 'string' ||
+			exactText.length === 0 ||
+			! Number.isInteger( occurrence )
+		) {
+			recordFailure( location, 'unsupported-block' );
+			continue;
+		}
+		const block = getBlock( clientId );
+		if ( ! block || block.name !== blockName ) {
+			recordFailure( location, 'changed' );
+			continue;
+		}
+		const inspected = inspectInsertionRange(
+			block,
+			exactText,
+			occurrence,
+			suggestion?.target_permalink || ''
+		);
+		if ( inspected.status !== 'ready' ) {
+			recordFailure(
+				location,
+				{
+					unsupported: 'unsupported-block',
+					linked: 'already-linked',
+					'already-linked': 'already-linked',
+					overlap: 'link-overlap',
+					'replacement-overlap': 'replacement-overlap',
+					stale: 'changed',
+					malformed: 'unmappable',
+				}[ inspected.status ] || 'unavailable'
+			);
+			continue;
+		}
+
+		return {
+			evidence: {
+				block_client_id: clientId,
+				block_name: blockName,
+				exact_text: exactText,
+				occurrence,
+				unit_key: aiAnchor?.unit_key || null,
+				source_kind: aiAnchor ? 'ai' : 'deterministic',
+			},
+			location,
+			reason: '',
+			inspectionMs:
+				( globalThis.performance?.now?.() || Date.now() ) - started,
+		};
+	}
+
+	const priority = [
+		'already-linked',
+		'link-overlap',
+		'replacement-overlap',
+		'changed',
+		'unmappable',
+		'unsupported-block',
+		'unavailable',
+	];
+	const selectedFailure = priority
+		.map( ( reason ) =>
+			failures.find( ( failure ) => failure.reason === reason )
+		)
+		.find( Boolean );
+	return {
+		evidence: null,
+		location: selectedFailure?.location || null,
+		reason:
+			selectedFailure?.reason ||
+			suggestion?.location_status ||
+			'unavailable',
+		inspectionMs:
+			( globalThis.performance?.now?.() || Date.now() ) - started,
+	};
+}
+
+export function resolveInsertionEvidence( suggestion, aiEvaluation, getBlock ) {
+	return inspectSuggestionInsertion( suggestion, aiEvaluation, getBlock )
+		.evidence;
 }
 
 export function collectDraftLinks( blocks, limits ) {

@@ -33,7 +33,7 @@ class Intertexere_Editor_REST_Test extends WP_UnitTestCase {
 		$response = rest_get_server()->dispatch( $this->request( $this->payload( $source ) ) );
 
 		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( 1, $response->get_data()['contract_version'] );
+		$this->assertSame( Editor_Suggestions::CONTRACT_VERSION, $response->get_data()['contract_version'] );
 		$this->assertArrayHasKey( 'suggestions', $response->get_data() );
 	}
 

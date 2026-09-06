@@ -111,7 +111,7 @@ final class Insertion_Validation {
 		if ( ! is_array( $member ) ) {
 			return self::stale( 'The target is no longer a current deterministic suggestion.' );
 		}
-		if ( 'deterministic' === $request['source_kind'] && ! self::matches_deterministic_location( $member, $request['anchor'], $anchor_start ) ) {
+		if ( 'deterministic' === $request['source_kind'] && ! self::matches_deterministic_location( $member, $request['anchor'] ) ) {
 			return self::stale( 'The exact anchor no longer matches the current deterministic location.' );
 		}
 
@@ -281,15 +281,15 @@ final class Insertion_Validation {
 		if ( ! is_array( $block ) || $block['blockName'] !== $anchor['block_name'] ) {
 			return self::stale( 'The insertion block cannot be verified.' );
 		}
-		$content_html = self::direct_content_html( $anchor['block_name'], (string) $block['innerHTML'] );
-		if ( null === $content_html ) {
+		$mapping = Editor_Suggestions::insertion_text_mapping( $anchor['block_name'], (string) $block['innerHTML'] );
+		if ( null === $mapping ) {
 			return self::error( 'intertexere_insertion_malformed_block', 'The insertion block has malformed RichText content.', 409 );
 		}
 
 		return array(
 			'markup'       => $matches[0]['markup'],
-			'content_html' => $content_html,
-			'text'         => self::plain_text( $content_html ),
+			'content_html' => $mapping['content_html'],
+			'text'         => $mapping['text'],
 		);
 	}
 
@@ -384,13 +384,17 @@ final class Insertion_Validation {
 			&& (int) $matches[1] === $target_post_id;
 	}
 
-	private static function matches_deterministic_location( array $suggestion, array $anchor, int $anchor_start ): bool {
-		$location = $suggestion['location'] ?? null;
-		return is_array( $location )
-			&& ( $location['block_client_id'] ?? null ) === $anchor['block_client_id']
-			&& ( $location['block_name'] ?? null ) === $anchor['block_name']
-			&& ( $location['anchor_text'] ?? null ) === $anchor['exact_text']
-			&& ( $location['start'] ?? null ) === $anchor_start;
+	private static function matches_deterministic_location( array $suggestion, array $anchor ): bool {
+		foreach ( $suggestion['location_candidates'] ?? array() as $location ) {
+			if ( is_array( $location )
+				&& ( $location['block_client_id'] ?? null ) === $anchor['block_client_id']
+				&& ( $location['block_name'] ?? null ) === $anchor['block_name']
+				&& ( $location['anchor_text'] ?? null ) === $anchor['exact_text']
+				&& ( $location['occurrence'] ?? null ) === $anchor['occurrence'] ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static function range_link_state( string $html, int $start, int $end, string $base_url, int $source_post_id, int $target_post_id, string $target_permalink ): string {
@@ -449,20 +453,9 @@ final class Insertion_Validation {
 		return false;
 	}
 
-	private static function direct_content_html( string $block_name, string $inner_html ): ?string {
-		$patterns = array(
-			'core/paragraph' => '#^\s*<p\b[^>]*>(.*)</p>\s*$#is',
-			'core/heading'   => '#^\s*<h[1-6]\b[^>]*>(.*)</h[1-6]>\s*$#is',
-			'core/list-item' => '#^\s*<li\b[^>]*>(.*)</li>\s*$#is',
-		);
-		if ( ! isset( $patterns[ $block_name ] ) || 1 !== preg_match( $patterns[ $block_name ], $inner_html, $match ) ) {
-			return null;
-		}
-		return $match[1];
-	}
-
 	private static function plain_text( string $html ): string {
-		return html_entity_decode( wp_strip_all_tags( $html, true ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+		$line_mapped = preg_replace( '#<br\s*/?>#i', "\n", $html );
+		return html_entity_decode( wp_strip_all_tags( is_string( $line_mapped ) ? $line_mapped : $html, false ), ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ?: 'UTF-8' );
 	}
 
 	/** @return int|false */

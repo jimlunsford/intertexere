@@ -310,6 +310,9 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertSame( $response['draft_hash'], $location['draft_hash'] );
 		$this->assertSame( $response['analysis_id'], $location['analysis_id'] );
 		$this->assertSame( 64, strlen( $location['block_text_hash'] ) );
+		$this->assertSame( 2, $response['contract_version'] );
+		$this->assertSame( 3, $response['algorithm_version'] );
+		$this->assertCount( 2, $response['suggestions'][0]['location_candidates'] );
 	}
 
 	public function test_relationship_can_return_a_block_location_with_a_null_anchor(): void {
@@ -324,6 +327,199 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 
 		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
 		$this->assertNull( $response['suggestions'][0]['location'] );
+		$this->assertSame( 'no-specific-phrase', $response['suggestions'][0]['location_status'] );
+	}
+
+	public function test_production_style_series_locations_are_specific_bounded_and_insertion_aware(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
+		$titles = array(
+			'Discipline Dispatch: Keep Moving',
+			'Discipline Dispatch: Keep Swinging',
+			'Discipline Dispatch: Power Was Yours',
+			'Discipline Dispatch: All In or All Out',
+		);
+		$targets = array();
+		foreach ( $titles as $title ) {
+			$target = $this->create_target( $title );
+			wp_set_post_categories( $target, array( $category_a, $category_b ) );
+			Indexer::refresh_post( $target );
+			$targets[ $title ] = $target;
+		}
+
+		$payload = $this->payload(
+			0,
+			'Discipline Dispatch: Protect the Floor',
+			array(
+				$this->unit( 'linked-prefix', 'core/paragraph', '<!-- wp:paragraph --><p><a href="https://outside.example/series/">Discipline Dispatch</a> introduction.</p><!-- /wp:paragraph -->' ),
+				$this->unit( 'unsupported-prefix', 'core/pullquote', '<!-- wp:pullquote --><figure class="wp-block-pullquote"><blockquote><p>Discipline Dispatch reference.</p></blockquote></figure><!-- /wp:pullquote -->' ),
+				$this->unit( 'safe-moving', 'core/paragraph', '<!-- wp:paragraph --><p>We keep moving even when the work gets hard.</p><!-- /wp:paragraph -->' ),
+				$this->unit( 'repeated-swinging', 'core/paragraph', '<!-- wp:paragraph --><p><a href="https://outside.example/linked/">keep swinging</a>, then keep swinging when the first phrase is unavailable.</p><!-- /wp:paragraph -->' ),
+			)
+		);
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
+		$response = Editor_Suggestions::analyze( $payload );
+		$by_id = array();
+		foreach ( $response['suggestions'] as $suggestion ) {
+			$by_id[ $suggestion['target_post_id'] ] = $suggestion;
+		}
+
+		$moving = $by_id[ $targets['Discipline Dispatch: Keep Moving'] ];
+		$this->assertSame( 'keep moving', $moving['location']['anchor_text'] );
+		$this->assertSame( 'safe-moving', $moving['location']['block_client_id'] );
+		$this->assertSame( 0, $moving['location']['occurrence'] );
+		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_LOCATION_CANDIDATES, count( $moving['location_candidates'] ) );
+
+		$swinging = $by_id[ $targets['Discipline Dispatch: Keep Swinging'] ];
+		$this->assertCount( 2, $swinging['location_candidates'] );
+		$this->assertSame( 0, $swinging['location_candidates'][0]['occurrence'] );
+		$this->assertSame( 1, $swinging['location_candidates'][1]['occurrence'] );
+
+		$power = $by_id[ $targets['Discipline Dispatch: Power Was Yours'] ];
+		$this->assertNull( $power['location'] );
+		$this->assertSame( 'no-specific-phrase', $power['location_status'] );
+		$this->assertNotContains( 'Discipline Dispatch', array_column( $power['location_candidates'], 'anchor_text' ) );
+	}
+
+	public function test_repeated_full_title_cannot_starve_a_later_specific_suffix(): void {
+		$target = $this->create_target( 'Discipline Dispatch: Keep Moving' );
+		$links  = array();
+		for ( $index = 0; $index < 8; ++$index ) {
+			$links[] = '<a href="https://outside.example/unsafe-' . $index . '/">Discipline Dispatch: Keep Moving</a>';
+		}
+		$payload = $this->payload(
+			0,
+			'Discipline Dispatch: Keep Moving',
+			array(
+				$this->unit( 'early-linked', 'core/paragraph', '<!-- wp:paragraph --><p>' . implode( ' ', $links ) . '</p><!-- /wp:paragraph -->' ),
+				$this->unit( 'later-safe', 'core/paragraph', '<!-- wp:paragraph --><p>We keep moving after every earlier location fails.</p><!-- /wp:paragraph -->' ),
+			)
+		);
+		$first  = Editor_Suggestions::analyze( $payload );
+		$second = Editor_Suggestions::analyze( $payload );
+		$suggestion = array_column( $first['suggestions'], null, 'target_post_id' )[ $target ];
+		$locations  = $suggestion['location_candidates'];
+
+		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_LOCATION_CANDIDATES, count( $locations ) );
+		$this->assertSame( $locations, array_column( $second['suggestions'], null, 'target_post_id' )[ $target ]['location_candidates'] );
+		$this->assertContains( 'later-safe', array_column( $locations, 'block_client_id' ) );
+		$later = array_values(
+			array_filter(
+				$locations,
+				static function ( array $location ): bool {
+					return 'later-safe' === $location['block_client_id'];
+				}
+			)
+		);
+		$this->assertCount( 1, $later );
+		$this->assertSame( 'keep moving', $later[0]['anchor_text'] );
+		$this->assertSame( 0, $later[0]['occurrence'] );
+	}
+
+	public function test_shared_prefix_detection_is_generic_and_not_a_series_name(): void {
+		$method = new ReflectionMethod( Editor_Suggestions::class, 'shared_leading_title_terms' );
+		$method->setAccessible( true );
+		$this->assertSame(
+			array( 'field', 'notes' ),
+			$method->invoke( null, 'Field Notes: River Safety', array( 'Field Notes: Trail Safety', 'Field Notes: River Safety' ) )
+		);
+		$this->assertSame( array(), $method->invoke( null, 'River Safety', array( 'Trail Safety', 'River Safety' ) ) );
+	}
+
+	public function test_unsupported_specific_match_does_not_block_a_later_supported_match(): void {
+		$target = $this->create_target( 'Safe Alternate Phrase' );
+		$response = Editor_Suggestions::analyze(
+			$this->payload(
+				0,
+				'Safe Alternate Phrase',
+				array(
+					$this->unit( 'unsupported', 'core/pullquote', '<!-- wp:pullquote --><figure><blockquote><p>Safe Alternate Phrase</p></blockquote></figure><!-- /wp:pullquote -->' ),
+					$this->unit( 'supported', 'core/paragraph', '<!-- wp:paragraph --><p>Later safe alternate phrase remains available.</p><!-- /wp:paragraph -->' ),
+				)
+			)
+		);
+		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
+		$this->assertSame( 'supported', $response['suggestions'][0]['location']['block_client_id'] );
+		$this->assertSame( 'safe alternate phrase', $response['suggestions'][0]['location']['anchor_text'] );
+	}
+
+	public function test_specific_match_only_in_an_unsupported_block_reports_read_only_state(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
+		$target = $this->create_target( 'Unsupported Exact Destination' );
+		wp_set_post_categories( $target, array( $category_a, $category_b ) );
+		Indexer::refresh_post( $target );
+		$payload = $this->payload(
+			0,
+			'Unrelated source title',
+			array(
+				$this->unit( 'unsupported', 'core/pullquote', '<!-- wp:pullquote --><figure><blockquote><p>Unsupported Exact Destination appears only here.</p></blockquote></figure><!-- /wp:pullquote -->' ),
+			)
+		);
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
+		$response = Editor_Suggestions::analyze( $payload );
+
+		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
+		$this->assertNull( $response['suggestions'][0]['location'] );
+		$this->assertSame( 'unsupported-block', $response['suggestions'][0]['location_status'] );
+	}
+
+	public function test_candidate_specific_indexed_heading_phrase_is_insertable(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
+		$target = $this->create_target(
+			'Field Notes: Landing Safely',
+			'<!-- wp:heading --><h2>Repair the Runway</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Destination detail.</p><!-- /wp:paragraph -->'
+		);
+		wp_set_post_categories( $target, array( $category_a, $category_b ) );
+		Indexer::refresh_post( $target );
+		$payload = $this->payload( 0, 'Source without title terms', array( $this->paragraph( 'We repair the runway before the next difficult landing.' ) ) );
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
+		$response = Editor_Suggestions::analyze( $payload );
+
+		$this->assertSame( $target, $response['suggestions'][0]['target_post_id'] );
+		$this->assertSame( 'repair the runway', $response['suggestions'][0]['location']['anchor_text'] );
+	}
+
+	public function test_exact_mapping_preserves_case_entities_unicode_formatting_whitespace_and_line_breaks(): void {
+		$category_a = self::factory()->category->create();
+		$category_b = self::factory()->category->create();
+		$entity_target = $this->create_target( 'Café & Resolve' );
+		$space_target  = $this->create_target( 'Keep Moving' );
+		wp_set_post_categories( $entity_target, array( $category_a, $category_b ) );
+		wp_set_post_categories( $space_target, array( $category_a, $category_b ) );
+		Indexer::refresh_post( $entity_target );
+		Indexer::refresh_post( $space_target );
+		$payload = $this->payload(
+			0,
+			'Café Resolve Keep Moving',
+			array(
+				$this->unit( 'entity', 'core/paragraph', '<!-- wp:paragraph --><p><strong>café &amp; resolve</strong> 🙂 with punctuation.</p><!-- /wp:paragraph -->' ),
+				$this->unit( 'spaces', 'core/paragraph', '<!-- wp:paragraph --><p><em>keep</em>   moving<br>again with stable text.</p><!-- /wp:paragraph -->' ),
+			)
+		);
+		$payload['taxonomies'] = array( 'category' => array( $category_a, $category_b ) );
+		$entity_response = Editor_Suggestions::analyze( $payload );
+		$by_id = array_column( $entity_response['suggestions'], null, 'target_post_id' );
+		$this->assertSame( 'Café & Resolve', $by_id[ $entity_target ]['target_title'] );
+		$this->assertSame( 'café & resolve', $by_id[ $entity_target ]['location']['anchor_text'] );
+		$this->assertSame( 'keep   moving', $by_id[ $space_target ]['location']['anchor_text'] );
+		$this->assertStringContainsString( "moving\nagain", $by_id[ $space_target ]['location']['excerpt'] );
+		$this->assertSame(
+			"café & resolve 🙂  keep\nmoving",
+			Editor_Suggestions::insertion_text_mapping( 'core/paragraph', '<p><strong>café &amp; resolve</strong> 🙂  keep<br>moving</p>' )['text']
+		);
+	}
+
+	public function test_location_candidates_are_deterministic_and_hard_bounded(): void {
+		$target = $this->create_target( 'Bounded Exact Destination' );
+		$payload = $this->payload( 0, 'Bounded Exact Destination', array( $this->paragraph( implode( ' ', array_fill( 0, 12, 'bounded exact destination' ) ) ) ) );
+		$first = Editor_Suggestions::analyze( $payload );
+		$second = Editor_Suggestions::analyze( $payload );
+		$this->assertSame( $first['suggestions'][0]['location_candidates'], $second['suggestions'][0]['location_candidates'] );
+		$this->assertCount( Editor_Suggestions::MAX_LOCATION_CANDIDATES, $first['suggestions'][0]['location_candidates'] );
+		$this->assertSame( $target, $first['suggestions'][0]['target_post_id'] );
+		$this->assertSame( Editor_Suggestions::MAX_LOCATION_CANDIDATES, $first['limits']['max_location_candidates'] );
 	}
 
 	public function test_analysis_is_read_only_and_makes_no_external_request(): void {
@@ -465,10 +661,13 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		fwrite(
 			STDOUT,
 			sprintf(
-				"\n0.3 large fixture: %d candidates, %d queries, %.3f ms\n",
+				"\n0.3 large fixture: %d candidates, %d queries, %.3f ms, %.3f ms locations, %d response bytes, max %d locations\n",
 				$response['limits']['candidate_count'],
 				$metrics['query_count'],
-				$metrics['elapsed_ms']
+				$metrics['elapsed_ms'],
+				$metrics['location_selection_ms'],
+				$metrics['response_bytes'],
+				$metrics['maximum_location_candidates']
 			)
 		);
 
@@ -476,6 +675,8 @@ class Intertexere_Editor_Suggestions_Test extends WP_UnitTestCase {
 		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_RESULTS, count( $response['suggestions'] ) );
 		$this->assertLessThanOrEqual( 12, $metrics['query_count'] );
 		$this->assertLessThan( 3000, $metrics['elapsed_ms'] );
+		$this->assertLessThanOrEqual( Editor_Suggestions::MAX_LOCATION_CANDIDATES, $metrics['maximum_location_candidates'] );
+		$this->assertGreaterThan( 0, $metrics['response_bytes'] );
 		$this->assertTrue( $response['limits']['truncated'] || 100 === $response['limits']['candidate_count'] );
 	}
 

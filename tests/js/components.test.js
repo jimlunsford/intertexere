@@ -1,5 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { AIControls, AnalysisBody } from '../../src/editor/components';
+import {
+	AIControls,
+	AnalysisBody,
+	insertionReadOnlyMessage,
+} from '../../src/editor/components';
 
 jest.mock( '@wordpress/components', () => {
 	// JSX in this isolated package-boundary mock needs the WordPress element runtime.
@@ -39,10 +43,26 @@ const suggestion = {
 	location: {
 		anchor_text: 'literal destination',
 		excerpt: 'A literal destination appears here.',
+		occurrence: 0,
 	},
 };
 
 describe( 'analysis presentation', () => {
+	test.each( [
+		[ 'no-specific-phrase', /No destination-specific phrase/ ],
+		[ 'unsupported-block', /block Intertexere does not edit/ ],
+		[ 'already-linked', /phrase is already linked/ ],
+		[ 'link-overlap', /overlaps another link/ ],
+		[ 'replacement-overlap', /non-text editor object/ ],
+		[ 'changed', /changed after analysis/ ],
+		[ 'unmappable', /could not be mapped safely/ ],
+		[ 'unknown-code', /not currently available/ ],
+	] )(
+		'maps %s to a precise safe read-only explanation',
+		( code, expected ) => {
+			expect( insertionReadOnlyMessage( code ) ).toMatch( expected );
+		}
+	);
 	test( 'renders Insert Link only for current exact insertion evidence and requires a click', () => {
 		const onInsert = jest.fn();
 		const insertionEvidence = new Map( [
@@ -78,6 +98,83 @@ describe( 'analysis presentation', () => {
 			suggestion,
 			insertionEvidence.get( 14 )
 		);
+	} );
+
+	test( 'renders the location paired with the selected read-only reason', () => {
+		const linked = {
+			anchor_text: 'linked phrase',
+			excerpt: 'Linked context belongs to this failure.',
+			occurrence: 0,
+		};
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ new Map() }
+				insertionAvailability={
+					new Map( [
+						[
+							14,
+							{
+								evidence: null,
+								location: linked,
+								reason: 'already-linked',
+							},
+						],
+					] )
+				}
+				insertionStates={ {} }
+				onInsert={ jest.fn() }
+			/>
+		);
+		expect( screen.getByText( '“linked phrase”' ) ).toBeVisible();
+		expect(
+			screen.getByText( 'Linked context belongs to this failure.' )
+		).toBeVisible();
+		expect( screen.getByText( /phrase is already linked/ ) ).toBeVisible();
+		expect( screen.queryByText( '“literal destination”' ) ).toBeNull();
+		expect(
+			screen.queryByText( 'A literal destination appears here.' )
+		).toBeNull();
+	} );
+
+	test( 'does not fall back to an unrelated phrase for an aggregate reason', () => {
+		render(
+			<AnalysisBody
+				status="results"
+				error=""
+				response={ { suggestions: [ suggestion ] } }
+				suggestions={ [ suggestion ] }
+				stale={ false }
+				onDismiss={ jest.fn() }
+				insertionEvidence={ new Map() }
+				insertionAvailability={
+					new Map( [
+						[
+							14,
+							{
+								evidence: null,
+								location: null,
+								reason: 'no-specific-phrase',
+							},
+						],
+					] )
+				}
+				insertionStates={ {} }
+				onInsert={ jest.fn() }
+			/>
+		);
+		expect(
+			screen.getByText( /No destination-specific phrase/ )
+		).toBeVisible();
+		expect( screen.queryByText( '“literal destination”' ) ).toBeNull();
+		expect(
+			screen.queryByText( 'A literal destination appears here.' )
+		).toBeNull();
 	} );
 
 	test( 'exposes validating and announced success states accessibly', () => {

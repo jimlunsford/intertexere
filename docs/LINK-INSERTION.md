@@ -56,12 +56,16 @@ Pullquote, verse, preformatted, table cells, image or gallery captions, and audi
 
 Expanding this allowlist requires runtime proof, unit and browser coverage for the attribute path, and an updated reviewed contract.
 
+The 0.6.1 maintenance selector keeps analyzable and insertable text separate. Unsupported units may contribute to deterministic relevance but cannot displace a later supported location. For each suggestion, the server returns at most eight ordered deterministic candidates, with one slot first reserved for every nonempty bounded phrase tier and with first-and-last occurrence reservoirs retaining later specific matches. The client evaluates them against current RichText and uses the first candidate that passes all existing 0.5 checks. An unsupported, linked, overlapping, replacement-crossing, changed, or unmappable candidate does not prevent inspection of the next bounded candidate.
+
+Client inspection records each failed location together with its own reason. If every candidate fails, the UI selects one complete location-reason pair deterministically. An aggregate explanation with no exact candidate displays no unrelated proposed phrase or draft context.
+
 ## Insertion authority model
 
 A displayed card is evidence, not authorization. Insertion has four authority layers:
 
 1. The current editor snapshot identifies the current source, draft, block, and proposed existing anchor.
-2. The deterministic analyzer proves that the target is still a member of the current eligible candidate set. An AI overlay may influence display order only.
+2. The deterministic analyzer proves that the target is still a member of the current eligible candidate set and that a submitted deterministic anchor is one of its current bounded location candidates. An AI overlay may influence display order only.
 3. A dedicated read-only server validation resolves current WordPress source and target state and returns the current canonical target permalink plus normalized insertion evidence.
 4. A final synchronous client check proves that the response still owns the action and the exact editor range is unchanged immediately before `updateBlockAttributes()`.
 
@@ -88,7 +92,7 @@ The server:
 7. resolves the target by post ID and rejects self-targeting, deletion, non-published status, password protection, unsupported or excluded post type, and any current ineligibility;
 8. resolves the current canonical permalink from WordPress;
 9. resolves every internal link in the current unsaved draft and rejects an existing link to the same target post ID, including alternate URL forms;
-10. verifies the supported block, exact existing text, and occurrence against the canonical snapshot;
+10. verifies the supported block, exact existing text, and occurrence against the canonical snapshot and the fresh authorized deterministic location set;
 11. compares a server-authoritative target snapshot before and after validation so a material target race returns a stale error;
 12. returns a bounded validation response and performs no write.
 
@@ -116,7 +120,7 @@ The interval between server validation and local mutation cannot be eliminated. 
 
 ## Exact anchor and occurrence identity
 
-Existing 0.3 and 0.4 fields are session evidence and hints. None is trusted without recomputation.
+Existing 0.3 and 0.4 fields are session evidence and hints. None is trusted without recomputation. A deterministic client may choose only among the fresh bounded locations produced by current analysis. It cannot submit arbitrary text that merely exists in the draft.
 
 The final insertion identity binds:
 
@@ -132,7 +136,7 @@ The final insertion identity binds:
 
 Server offsets are not used directly as RichText indices. PHP canonical text positions count Unicode characters, while JavaScript RichText positions use UTF-16 code units. Exact text plus occurrence is the cross-runtime identity. The browser recomputes the JavaScript range in the current `RichTextValue.text`, including for Unicode and emoji.
 
-If the same phrase appears more than once, the explicitly validated occurrence is used. Intertexere never falls back to the first match, relocates to a similar phrase, or guesses a replacement range. If one exact occurrence cannot be proved, insertion fails.
+If the same phrase appears more than once, the explicitly validated occurrence is used. The client may skip an unsafe authorized occurrence and choose a later authorized occurrence, but it never silently changes that selected identity during validation or mutation. If the selected exact occurrence cannot be proved, insertion fails.
 
 AI anchor output remains untrusted. The server maps an opaque AI unit key back to server-held deterministic location evidence without adding block IDs, client IDs, target URLs, or permalinks to the model prompt. The exact anchor then passes the same insertion validation as a deterministic anchor.
 
@@ -176,6 +180,8 @@ Before a normal WordPress save, the persistent index and graph continue to descr
 Insert Link is available only for a current deterministic suggestion with a supported, exact, insertable anchor. An AI-kept suggestion may expose the same action only after the same deterministic and insertion checks. AI rank, explanation, and anchor choice grant no authority.
 
 An AI-dropped suggestion has no action while hidden by the enhanced view. Switching back to deterministic results restores only actions justified by current deterministic evidence. A stale AI overlay is discarded. Suggestions without an exact safe anchor or in unsupported blocks remain visible without Insert Link.
+
+When Insert Link is unavailable, the card reports the most specific safe explanation known to the client: no destination-specific phrase in a supported block, text only in an unsupported block, already linked, overlapping another link, crossing a RichText replacement, changed since analysis, not safely mappable to current RichText, or a generic unavailable fallback. A reason is explanatory only and cannot authorize insertion.
 
 The existing sidebar gains one explicit accessible `Button` with clear states: ready, validating, inserted, stale, duplicate or already linked, unsupported, target unavailable, and validation error. Loading and disabled state must be programmatically exposed, status changes announced with WordPress notice or accessibility patterns, and keyboard activation supported. No iframe focus hack is used.
 
